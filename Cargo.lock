@@ -1,5 +1,5 @@
 [root]
-name = "configsync"
+name = "confsync"
 version = "0.0.1"
 dependencies = [
  "getopts 0.2.9 (registry+https://github.com/rust-lang/crates.io-index)",

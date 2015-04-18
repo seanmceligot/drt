@@ -1,5 +1,5 @@
 [package]
-name = "configsync"
+name = "confsync"
 version = "0.0.1"
 authors = ["Sean McEligot <sean.mceligot@gmail.com>"]
 

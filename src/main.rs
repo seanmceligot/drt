@@ -1,5 +1,7 @@
 #![feature(path_ext)] 
 #![feature(convert)]
+#![feature(collections)]
+
 use std::error::Error;
 use std::fs::copy;
 use std::fs::File;
@@ -18,16 +20,36 @@ use std::env;
 
 extern crate glob;
 use self::glob::glob;
+use self::glob::Paths;
+use self::glob::PatternError;
 
 use std::fs::OpenOptions;
 use std::process::Command;
 
+//mod files {
+//use std::path::Path;
+pub struct Files{
+    template: String,
+    gen: String ,
+    dest: String
+}
 
+impl Files {
+    fn new(ppath: &Path, dest_dir:String) -> Files {
+          let gen =  Path::new("/tmp").join(Path::new(ppath.file_name().unwrap()));
+          let dest = Path::new(&*dest_dir).join(*&ppath);
+        Files { 
+        template: ppath.to_str().unwrap().to_string(), 
+        gen: gen.to_str().unwrap().to_string(), 
+        dest:dest.to_str().unwrap().to_string() }
+    }
+}
+//}
 //#[derive(Debug)]
-fn properties<'a>(property_file:&str) ->  HashMap<String,String> {
+fn properties<'a>(property_file:String) ->  HashMap<String,String> {
   //let system =  "system.config";
   let mut map: HashMap<String,String> = HashMap::new();
-  let path = Path::new(property_file);
+  let path = Path::new(property_file.as_str());
   println!("open {:?}", path);
   let file = match File::open(&path) {
     Ok(file) => file,
@@ -60,22 +82,19 @@ fn properties<'a>(property_file:&str) ->  HashMap<String,String> {
   }  
   println!("map {:?}", map);
   map
-} 
-enum Generated {
-   RText(String),
-   RBinary(String)
 }
-enum Sink {
-    BSink(String,String),
-    TSink(String,String),
-    NewSink(String,String)
+enum Generated<'r> {
+   RText(&'r Files),
+   RBinary(&'r Files)
 }
-//#![feature(collections)]
-//#![feature(str_words)]
-fn generate<'r>(map: &HashMap<String,String> , file:&Path) -> Result<Generated,String>  {
-  let gen: String =  ("/tmp/sink.tmp").to_string();
-  let path = Path::new(file);
-  println!("open {:?}", path);
+enum Sink<'r> {
+    BSink(&'r Files),
+    TSink(&'r Files),
+    NewSink(&'r Files)
+}
+fn path_to_generate<'r>(map: &HashMap<String,String>, files: &'r Files) -> Result<Generated<'r>,String> {
+  let path = Path::new(files.template.as_str());
+  println!("open template {:?}", path);
   let file = match File::open(&path) {
     Ok(file) => file, 
     Err(why) => return Err(why.description().to_string())
@@ -87,7 +106,7 @@ fn generate<'r>(map: &HashMap<String,String> , file:&Path) -> Result<Generated,S
   let reader = BufReader::new( file );
   let lines = reader.lines();
 
-  let mut tmpfile = match OpenOptions::new() .read(false).write(true).create(true) .open(Path::new(gen.as_str())) {
+  let mut tmpfile = match OpenOptions::new() .read(false).write(true).create(true) .open(Path::new(files.gen.as_str())) {
     Ok(f) => f,
     Err(why) => return Err(format!("couldn't open {}: {}", &path.display(), Error::description(&why)))
   };
@@ -95,7 +114,7 @@ fn generate<'r>(map: &HashMap<String,String> , file:&Path) -> Result<Generated,S
     match line { 
         Err(why) => { 
             println!("couldn't read lines (assuming binary) {}: {}", &path.display(), Error::description(&why));
-            return Ok(Generated::RBinary(gen)) }, 
+            return Ok(Generated::RBinary(files)) }, 
         Ok( l ) => {
             match re.captures(l.as_str()) { 
                 None =>  println!("no match line {}", l),
@@ -111,8 +130,7 @@ fn generate<'r>(map: &HashMap<String,String> , file:&Path) -> Result<Generated,S
                             //println!("new: {}", newl);
                             writeln!(tmpfile, "{}", newl);
     }}}}}}}}
-    //diff(path, gen);
-    return Ok(Generated::RText(gen));
+    return Ok(Generated::RText(files));
 }
 fn diff(path:&Path, path2:&Path) -> Result<Vec<u8>,String>  {
     println!("diff {} {}", path.display(), path2.display());
@@ -145,23 +163,46 @@ fn create_from(path:&Path, destp:&Path) {
     std::fs::copy(path, destp);
 
 }
-fn create_or_diff(sink:Sink) {
+fn report(sink:Sink) {
     match sink {
-        Sink::NewSink(gen,dest) => {
-           let genp = Path::new(gen.as_str());
-           let destp = Path::new(dest.as_str());
-            create_from(&genp, destp);
+        Sink::NewSink(files) => {
+            println!("new file: {}", files.dest);
         },
-        Sink::TSink(gen,dest) => {
-           let genp = Path::new(gen.as_str());
-           let destp = Path::new(dest.as_str());
+        Sink::TSink(files) => {
+           let genp = Path::new(files.gen.as_str());
+           let destp = Path::new(files.dest.as_str());
            diff(genp, destp );
         },
-        Sink::BSink(gen,dest) => {
-           let genp = Path::new(gen.as_str());
-           let destp = Path::new(dest.as_str());
+        Sink::BSink(files) => {
+           println!("binary {}", files.dest);
+           let genp = Path::new(files.gen.as_str());
+           let destp = Path::new(files.dest.as_str());
+            if !destp.exists() { 
+                println!("new binary: {}", destp.display());
+            } else {
+                diff(genp, destp );
+            }
+        }
+    }
+
+}
+fn create_or_diff(sink:Sink) {
+    match sink {
+        Sink::NewSink(files) => {
+           let genp = Path::new(files.gen.as_str());
+           let destp = Path::new(files.dest.as_str());
+            create_from(&genp, destp);
+        },
+        Sink::TSink(files) => {
+           let genp = Path::new(files.gen.as_str());
+           let destp = Path::new(files.dest.as_str());
+           diff(genp, destp );
+        },
+        Sink::BSink(files) => {
+           let genp = Path::new(files.gen.as_str());
+           let destp = Path::new(files.dest.as_str());
             println!("binary {}", destp.display());
-            if (!destp.exists()) { 
+            if !destp.exists() { 
                 create_from(genp, destp);
             }
         }
@@ -169,54 +210,75 @@ fn create_or_diff(sink:Sink) {
 
 }
 //fn get_x<'r>(p: &'r Point) -> &'r f64 { &p.x }
-fn textOrBinary<'r>(map: &HashMap<String,String>, path: &Path) -> Result<Sink,String> {
-    println!("path {}", path.display());
-    let dest = "/home/sean/rust/sink/out/".to_string() + (path.to_str().unwrap());
-    println!("dest {}", dest);
-    match generate(&map, &path) {
+fn generated_to_sink<'r>(generated:Result<Generated<'r>,String>) -> Result<Sink<'r>,String> {
+    match generated {
         Err(why) => return Err(why),
         Ok(g) => match g {
-            Generated::RText(gen) => { 
-                let exists = Path::new(dest.as_str()).exists();
-                if (exists) { 
-                    return Ok(Sink::TSink(gen,dest));
+            Generated::RText(files) => { 
+                let exists = Path::new(files.dest.as_str()).exists();
+                if exists { 
+                    return Ok(Sink::TSink(files));
                 } else {
-                    return Ok(Sink::NewSink(gen, dest));
+                    return Ok(Sink::NewSink(files));
                 }},
-            Generated::RBinary(gen) => { 
-                let exists = Path::new(dest.as_str()).exists();
-                if (exists) { 
-                    return Ok(Sink::BSink(gen,dest));
+            Generated::RBinary(files) => { 
+                let exists = Path::new(files.dest.as_str()).exists();
+                if exists { 
+                    return Ok(Sink::BSink(files));
                 } else {
-                    return Ok(Sink::NewSink(gen, dest));
+                    return Ok(Sink::NewSink(files));
                 }
             }
         }
     }
 }
-fn process_dir(prop:&str, pattern:&str) {
-    let map = properties(prop);
-
+fn process_dir(pattern:&str) -> Vec<PathBuf> {
+    let mut vec = Vec::new();
     println!("glob {}", pattern);
-     match glob(pattern) {
-       Err(e) => println!("glob error {}", e.msg),
-       Ok(result) => {
-         for entry in result {
-              match entry {
-                 Ok(path) => {
-                     textOrBinary(&map, &path);
-                  },
-                  Err(e) => println!("err {:?}", e),
-              };
-          }
-       }
-     }
     
-       
+    match glob(pattern) {
+        Err(e1) => println!("{:?}", e1),
+        Ok(paths) => {
+            for globresult in paths {
+               match globresult {  
+                Err(glob_error) => println!("{:?}", glob_error),
+                Ok(pathbuf) => vec.push(pathbuf)
+               }
+        }
+        }
+    }
+    vec
 }
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
     print!("{}", opts.usage(&brief));
+}
+fn sync(map: HashMap<String,String>, dirs:Vec<String>) {
+    for dir in dirs.iter() { 
+        println!("dir {}", dir);
+     // process_dir(&system,"project/**");
+      let paths = process_dir(dir);
+    
+    //let files_it = paths.iter().map(|path:&PathBuf| Files::new(path, dest_dir));
+    for path in paths {
+        let dest_dir = "/home/sean/rust/confsync/out/".to_string();
+        let files = Files::new(path.as_path(), dest_dir);
+        //for files in files_it {
+          //files: core::iter::Map<core::slice::Iter<'_, std::path::PathBuf>
+            let gen = path_to_generate(&map, &files);
+            let result_sink = generated_to_sink(gen);
+            //  let gens = files_it.map(|&files| path_to_generate(&map, files));
+              //let sinks = gens.map(|gen| generated_to_sink(gen));
+              //for result_sink in sinks {
+                match result_sink {
+                    Err(msg) => { println!("err: {}",msg)},
+                    Ok(sink)=>  {
+                        report(sink); 
+                        //create_or_diff(sink); 
+                    }
+                }   
+              } 
+            }
 }
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -236,7 +298,7 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
-    let prop = match matches.opt_str("p") {
+    let prop:String = match matches.opt_str("p") {
         Some(p) => p,
         None => { 
             "".to_string()}//println!("p");}
@@ -244,16 +306,14 @@ fn main() {
             //return; }
     };
     println!("prop {}", prop);
-    let dirs = if !matches.free.is_empty() {
+    let dirs:Vec<String> = if !matches.free.is_empty() {
         matches.free
     } else {
         println!("matches.free {:?}", matches.free.as_slice());
         print_usage(&program, opts);
         return;
-    };   
-    for dir in dirs.iter() { 
-        println!("dir {}", dir);
-     // process_dir(&system,"project/**");
-      process_dir(&prop,dir);
-    }
+    }; 
+
+    let map = properties(prop);
+    sync(map, dirs);   
 }
