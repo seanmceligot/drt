@@ -1,0 +1,6 @@
+[package]
+name = "devo2"
+version = "0.1.0"
+authors = ["Sean <sean.mceligot@gmail.com>"]
+
+[dependencies]
