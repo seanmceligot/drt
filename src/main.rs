@@ -9,25 +9,21 @@ use std::process::ChildStdout;
 //use std::io::BufReader;
 use std::io::{BufRead, BufReader};
 
-fn readout(out:ChildStdout) {
+fn readout(out:ChildStdout) -> String {
     let mut buf_reader = BufReader::new(out);
-	let mut line = String::new();
 	//let len = reader.read_line(&mut line)?;
-	match buf_reader.read_line(&mut line) {
-		Ok(n) => {
-			print!("line: {}", line);
-			print!("n: {}", n);
-		},
-		Err(e) => { println!("ERROR: read_line '{}'", e) }
-	}
-//	for line in buf_reader.lines() {
-//		match line {
-//			Ok(l) => {
-//    			println!("stdout:\n{}", l);
-//			},
-//			Err(_) => return,
-//		};
-//	}
+	let mut line = String::new();
+	loop {
+        match buf_reader.read_line(&mut line) {
+            Ok(n) => {
+                if n < 1 {
+                    break;
+                }
+            },
+            Err(e) => { println!("ERROR: read_line '{}'", e); }
+        }
+    }
+    return line;
 }
 fn diff(_a:&Path, _b:&Path) -> Result<Child>  {
     return Command::new("diff")
@@ -36,15 +32,12 @@ fn diff(_a:&Path, _b:&Path) -> Result<Child>  {
             .stdout(Stdio::piped())
 			.spawn();
 }
-fn read(result:std::io::Result<Child>) -> Option<&'static str> {
+fn read(result:std::io::Result<Child>) -> Option<String> {
 	match result {
        Ok(v) => { 
         let maybe_stdout:std::option::Option<std::process::ChildStdout> = v.stdout;
         match maybe_stdout {
-            std::option::Option::Some(stdout) => {
-			readout(stdout);
-            Some("")
-            },
+            std::option::Option::Some(stdout) => std::option::Option::Some(readout(stdout)),
             std::option::Option::None => None
         }
        }
@@ -57,7 +50,10 @@ fn read(result:std::io::Result<Child>) -> Option<&'static str> {
 fn main() {
     let src = Path::new("test.txt");
     let dst = Path::new("/home/sean/test.txt");
-    read(diff(src, dst));
+    match read(diff(src, dst)) {
+            std::option::Option::Some(stdout) => { println!("{}", stdout)},
+            std::option::Option::None =>  {println!("failed")},
+    }
 
 //			match process.stdout {
 }
