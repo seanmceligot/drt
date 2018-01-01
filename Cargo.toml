@@ -3,6 +3,14 @@ name = "drt"
 version = "0.1.0"
 authors = ["Sean <sean.mceligot@gmail.com>"]
 
+[lib]
+name = "drt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "drt"
+path = "src/main.rs"
+
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
