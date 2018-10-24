@@ -7,4 +7,4 @@ build:
 	cargo build
 
 run:
-	RUST_BACKTRACE=1 ./target/debug/confsync -p system.config "project/*"
+	RUST_BACKTRACE=1 ./target/debug/drt -p system.config "project/*"
