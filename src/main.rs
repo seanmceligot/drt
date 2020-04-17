@@ -100,9 +100,9 @@ fn generate_recommended<'r>(map: &HashMap<String,String>, files: &'r Files) -> R
         println!("l {:?}", l);
 
         if v.is_some() {
-            writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str()));
+            writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str())).expect("Cannot Write to tmp file")
         } else {
-            writeln!(tmpfile, "{}", l);
+            writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
         };
     }
   }
