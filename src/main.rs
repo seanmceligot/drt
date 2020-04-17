@@ -71,6 +71,12 @@ fn properties(map: &mut HashMap<String,String>,  property_file:String) -> Result
   println!("map {:?}", map);
   Ok(())
 }
+enum DiffStatus {
+   NoChanges, 
+   NewFile, 
+   Changed,
+   Failed
+ }
 enum Generated<'r> {
    RText(&'r Files),
    RBinary(&'r Files)
@@ -87,23 +93,32 @@ fn generate_recommended<'r>(map: &HashMap<String,String>, files: &'r Files) -> R
   //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
   let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
   let reader = BufReader::new( infile.unwrap() );
-  let mut tmpfile = OpenOptions::new().read(false).write(true).create(true) .open(Path::new(files.gen.as_str())).unwrap();
+  let mut tmpfile = OpenOptions::new().read(false).write(true).create(true).truncate(true).open(Path::new(files.gen.as_str())).unwrap();
   for line in reader.lines() {
     let l = line.unwrap();
-    for cap in re.captures_iter(l.as_str()) {
-        let t = cap.name("t").unwrap().as_str();
-        let k = cap.name("k").unwrap().as_str();
-        let v = map.get(k);
-        println!("t {:?}", t);
-        println!("k {:?}", k);
-        println!("v {:?}", v);
-        println!("l {:?}", l);
+    match re.captures(l.as_str()) {
+        Some(cap) => {
+            let t = cap.name("t").unwrap().as_str();
+            let k = cap.name("k").unwrap().as_str();
+            let v = map.get(k);
+            println!("t {:?}", t);
+            println!("k {:?}", k);
+            println!("v {:?}", v);
+            println!("l {:?}", l);
 
-        if v.is_some() {
-            writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str())).expect("Cannot Write to tmp file")
-        } else {
+            if v.is_some() {
+                // change match to map[k[
+                writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str())).expect("Cannot Write to tmp file")
+            } else {
+                // found varable but no key in map so leave line alone
+                println!("warn: NOT FOUND {}", k);
+                writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
+            };
+        },
+        None => {
+            // no variable in line
             writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
-        };
+        }
     }
   }
   return Ok(Generated::RText(files));
@@ -120,12 +135,21 @@ fn merge(template:&Path, path:&Path, path2:&Path) -> ()  {
     println!("with: {}", status);
     assert!(status.success());
 }
-fn diff(path:&Path, path2:&Path) -> Result<usize,Error>  {
+fn diff(path:&Path, path2:&Path) -> DiffStatus  {
     println!("diff {} {}", path.display(), path2.display());
-    let output = Command::new("diff").arg(path).arg(path2).output().expect("diff failed");
-    io::stdout().write_all(&output.stdout).unwrap();
-    let len = output.stdout.len();
-    Ok(len)
+    if ! path2.exists() {
+        DiffStatus::NewFile
+    } else {
+        let output = Command::new("diff").arg(path).arg(path2).output().expect("diff failed");
+        io::stdout().write_all(&output.stdout).unwrap();
+        match output.status.code().unwrap() {
+            1 => DiffStatus::Changed,
+            2 => DiffStatus::Failed,
+            0 => DiffStatus::NoChanges,
+            _ => DiffStatus::Failed
+        }
+    }
+   
 }
 
 fn create_dir(maybe_path:Option<&Path>) {
@@ -141,7 +165,7 @@ fn create_dir(maybe_path:Option<&Path>) {
                    },
                    "y" => {
                         println!("mkdir {}", dir.display());
-                        std::fs::create_dir_all(dir);
+                        std::fs::create_dir_all(dir) .expect(&format!("create dir failed: {}", dir.display()));
                         if ! dir.exists() {
                             println!("dir not found {}", dir.display());
                         }
@@ -152,25 +176,31 @@ fn create_dir(maybe_path:Option<&Path>) {
 }
 fn create_from(template:&Path, path:&Path, destp:&Path) { 
     create_dir(destp.parent());
-    if diff(path,destp).unwrap() == 0 { 
-        println!("no changes '{}'", destp.display());
-    } else {
-        let ans = ask(format!("files don't match: {} {} (c)opy (m)erge (s)kip", path.display(), destp.display())); 
-        println!("you answered '{}'", ans);
-        match ans.as_ref() {
-            "s" => {
-               println!("skipping cp {} {}", path.display(), destp.display()); 
-            },
-            "m" => {
-                 merge(template, path, destp);
-                 diff(path,destp);
-                 create_from(template, path, destp);
-            },
-            "c" => {
-                 std::fs::copy(path, destp);
-            },
-            _ => create_from(template, path, destp) //repeat the question
-         }
+    match diff(path, destp) { 
+        DiffStatus::NoChanges => println!("no changes '{}'", destp.display()),
+        DiffStatus::Failed => println!("diff failed '{}'", destp.display()),
+        DiffStatus::NewFile => {
+            println!("create '{}'", destp.display());
+            std::fs::copy(path, destp);
+        },
+        DiffStatus::Changed => {
+            let ans = ask(format!("files don't match: {} {} (c)opy (m)erge (s)kip", path.display(), destp.display())); 
+            println!("you answered '{}'", ans);
+            match ans.as_ref() {
+                "s" => {
+                   println!("skipping cp {} {}", path.display(), destp.display()); 
+                },
+                "m" => {
+                     merge(template, path, destp);
+                     diff(path,destp);
+                     create_from(template, path, destp);
+                },
+                "c" => {
+                     std::fs::copy(path, destp);
+                },
+                _ => create_from(template, path, destp) //repeat diff and question
+             }
+        }
     }
 }
 fn report(sink:Sink) {
@@ -282,7 +312,7 @@ fn sync(map: HashMap<String,String>, dirs:Vec<String>) {
     
     //let files_it = paths.iter().map(|path:&PathBuf| Files::new(path, dest_dir));
     for path in paths {
-        let dest_dir = "/home/sean/rust/confsync/out/".to_string();
+        let dest_dir = "out/".to_string();
         //let files = Files::new(path.as_path(), dest_dir);
         let files = Files::new(path.as_path(), dest_dir);
         //for files in files_it {

@@ -1,3 +1,6 @@
+
+default: build
+
 test: build run
 
 verbose:
