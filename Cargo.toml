@@ -1,14 +1,14 @@
 [package]
-name = "confsync"
+name = "drt"
 version = "0.0.1"
 authors = ["Sean McEligot <sean.mceligot@gmail.com>"]
 
-regex = "0.1.26"
-getopts = "0.2.9"
-
+regex = "*"
+getopts = "*"
 
 [dependencies]
 regex = "*"
 getopts = "*"
 glob = "*"
 tempfile = "*"
+rand = "*"
