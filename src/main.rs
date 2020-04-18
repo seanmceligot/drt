@@ -1,10 +1,4 @@
-//#![feature(libc)]
-//#![feature(path_ext)] 
-//#![feature(convert)]
-//#![feature(collections)]
-//#![feature(convert)]
 use std::convert::AsRef;
-
 
 //use std::fs::copy;
 use std::str;
