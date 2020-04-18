@@ -24,5 +24,4 @@ fn main() {
     }
     let is_live = matches.opt_present("live");
     println!("is_live {}", is_live);
-
 }
