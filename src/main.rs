@@ -1,225 +1,25 @@
-use std::convert::AsRef;
+extern crate regex;
+extern crate getopts;
+extern crate glob;
 
-//use std::fs::copy;
+use getopts::Options;
+use self::glob::glob;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::stdin;
-use std::io::BufReader;
-use std::io::Error;
+use std::env;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
 use std::str;
+mod drt;
+use drt::properties;
+use drt::template::{Generated, TemplateFiles, create_from, generate_recommended};
+use drt::diff::{diff};
 
-use std::io::{self, Write};
-
-extern crate regex;
-use regex::Regex;
-
-extern crate getopts;
-use getopts::Options;
-use std::env;
-
-extern crate glob;
-use self::glob::glob;
-//use self::glob::Paths;
-//use self::glob::PatternError;
-
-use std::fs::OpenOptions;
-
-//extern crate libc;
-
-pub struct Files {
-    template: String,
-    gen: String,
-    dest: String,
-}
-
-impl Files {
-    fn new(ppath: &Path, dest_dir: String) -> Files {
-        let gen = Path::new("/tmp").join(Path::new(ppath.file_name().unwrap()));
-        let dest = Path::new(&*dest_dir).join(*&ppath);
-        Files {
-            template: ppath.to_str().unwrap().to_string(),
-            gen: gen.to_str().unwrap().to_string(),
-            dest: dest.to_str().unwrap().to_string(),
-        }
-    }
-}
-
-//fn properties<'a>(map: mut HashMap<String,String>,  property_file:String) -> Result<(), Error> {
-//#[derive(Debug)]
-fn properties(map: &mut HashMap<String, String>, property_file: String) -> Result<(), Error> {
-    //let system =  "system.config";
-    let path = Path::new(property_file.as_str());
-    println!("open {:?}", path);
-    let file = File::open(&path)?;
-    let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
-
-    let reader = BufReader::new(file);
-    for line in reader.lines() {
-        for cap in re.captures_iter(line.unwrap().as_str()) {
-            map.insert(
-                String::from(cap.name("k").unwrap().as_str()),
-                String::from(cap.name("v").unwrap().as_str()),
-            );
-        }
-    }
-    println!("map {:?}", map);
-    Ok(())
-}
-enum DiffStatus {
-    NoChanges,
-    NewFile,
-    Changed,
-    Failed,
-}
-enum Generated<'r> {
-    RText(&'r Files),
-    RBinary(&'r Files),
-}
 enum Sink<'r> {
-    SyncBinaryFile(&'r Files),
-    SyncTextFile(&'r Files),
-    SyncNewFile(&'r Files),
-}
-fn generate_recommended<'r>(
-    map: &HashMap<String, String>,
-    files: &'r Files,
-) -> Result<Generated<'r>, String> {
-    let path = Path::new(files.template.as_str());
-    println!("open template {:?}", path);
-    let infile: Result<File, Error> = File::open(&path);
-    //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
-    let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
-    let reader = BufReader::new(infile.unwrap());
-    let mut tmpfile = OpenOptions::new()
-        .read(false)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(Path::new(files.gen.as_str()))
-        .unwrap();
-    for line in reader.lines() {
-        let l = line.unwrap();
-        match re.captures(l.as_str()) {
-            Some(cap) => {
-                let t = cap.name("t").unwrap().as_str();
-                let k = cap.name("k").unwrap().as_str();
-                let v = map.get(k);
-                println!("t {:?}", t);
-                println!("k {:?}", k);
-                println!("v {:?}", v);
-                println!("l {:?}", l);
-
-                if v.is_some() {
-                    // change match to map[k[
-                    writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str()))
-                        .expect("Cannot Write to tmp file")
-                } else {
-                    // found varable but no key in map so leave line alone
-                    println!("warn: NOT FOUND {}", k);
-                    writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
-                };
-            }
-            None => {
-                // no variable in line
-                writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
-            }
-        }
-    }
-    return Ok(Generated::RText(files));
-}
-fn merge(template: &Path, path: &Path, path2: &Path) -> () {
-    let status = Command::new("vim")
-        .arg("-d")
-        .arg(template.as_os_str())
-        .arg(path.as_os_str())
-        .arg(path2.as_os_str())
-        .status()
-        .expect("failed to execute process");
-
-    println!("with: {}", status);
-    assert!(status.success());
-}
-fn diff(path: &Path, path2: &Path) -> DiffStatus {
-    println!("diff {} {}", path.display(), path2.display());
-    if !path2.exists() {
-        DiffStatus::NewFile
-    } else {
-        let output = Command::new("diff")
-            .arg(path)
-            .arg(path2)
-            .output()
-            .expect("diff failed");
-        io::stdout().write_all(&output.stdout).unwrap();
-        match output.status.code().unwrap() {
-            1 => DiffStatus::Changed,
-            2 => DiffStatus::Failed,
-            0 => DiffStatus::NoChanges,
-            _ => DiffStatus::Failed,
-        }
-    }
+    SyncBinaryFile(&'r TemplateFiles),
+    SyncTextFile(&'r TemplateFiles),
+    SyncNewFile(&'r TemplateFiles),
 }
 
-fn create_dir(maybe_path: Option<&Path>) {
-    match maybe_path {
-        None => {}
-        Some(dir) => {
-            if !dir.exists() {
-                let ans = ask(format!("create directory {} (y/n)", dir.display()));
-                match ans.as_ref() {
-                    "n" => {
-                        println!("skipping mkdir {}", dir.display());
-                    }
-                    "y" => {
-                        println!("mkdir {}", dir.display());
-                        std::fs::create_dir_all(dir)
-                            .expect(&format!("create dir failed: {}", dir.display()));
-                        if !dir.exists() {
-                            println!("dir not found {}", dir.display());
-                        }
-                    }
-                    _ => create_dir(maybe_path), //repeat the question
-                }
-            }
-        }
-    }
-}
-fn create_from(template: &Path, path: &Path, destp: &Path) {
-    create_dir(destp.parent());
-    match diff(path, destp) {
-        DiffStatus::NoChanges => println!("no changes '{}'", destp.display()),
-        DiffStatus::Failed => println!("diff failed '{}'", destp.display()),
-        DiffStatus::NewFile => {
-            println!("create '{}'", destp.display());
-            std::fs::copy(path, destp);
-        }
-        DiffStatus::Changed => {
-            let ans = ask(format!(
-                "files don't match: {} {} (c)opy (m)erge (s)kip",
-                path.display(),
-                destp.display()
-            ));
-            println!("you answered '{}'", ans);
-            match ans.as_ref() {
-                "s" => {
-                    println!("skipping cp {} {}", path.display(), destp.display());
-                }
-                "m" => {
-                    merge(template, path, destp);
-                    diff(path, destp);
-                    create_from(template, path, destp);
-                }
-                "c" => {
-                    std::fs::copy(path, destp);
-                }
-                _ => create_from(template, path, destp), //repeat diff and question
-            }
-        }
-    }
-}
 fn report(sink: Sink) {
     match sink {
         Sink::SyncNewFile(files) => {
@@ -241,14 +41,6 @@ fn report(sink: Sink) {
             }
         }
     }
-}
-fn ask(question: String) -> String {
-    println!("{}", question);
-    let mut line = String::new();
-    stdin().read_line(&mut line).expect("No User Input");
-    return line.trim().to_string();
-
-    //BufReader::new(std::io::stdin()).read_line().unwrap_or("");
 }
 fn create_or_diff(sink: Sink) {
     match sink {
@@ -326,11 +118,11 @@ fn sync(map: HashMap<String, String>, dirs: Vec<String>) {
         println!("dir {}", dir);
         let paths = process_dir(dir);
 
-        //let files_it = paths.iter().map(|path:&PathBuf| Files::new(path, dest_dir));
+        //let files_it = paths.iter().map(|path:&PathBuf| TemplateFiles::new(path, dest_dir));
         for path in paths {
             let dest_dir = "out/".to_string();
-            //let files = Files::new(path.as_path(), dest_dir);
-            let files = Files::new(path.as_path(), dest_dir);
+            //let files = TemplateFiles::new(path.as_path(), dest_dir);
+            let files = TemplateFiles::new(path.as_path(), dest_dir);
             //for files in files_it {
             //files: core::iter::Map<core::slice::Iter<'_, std::path::PathBuf>
             let gen = generate_recommended(&map, &files);
@@ -382,6 +174,6 @@ fn main() {
     };
 
     let mut map: HashMap<String, String> = HashMap::new();
-    properties(&mut map, prop);
+    properties::properties(&mut map, prop).expect("error loading properties");
     sync(map, dirs);
 }
