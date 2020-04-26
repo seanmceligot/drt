@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use regex::Regex;
 use std::collections::HashMap;
 use std::convert::AsRef;
@@ -6,7 +7,7 @@ use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::io::Error;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 use drt::diff::DiffStatus;
 use drt::fs::create_dir;
@@ -14,35 +15,30 @@ use drt::diff::diff;
 use drt::userinput::ask;
 
 pub struct TemplateFiles {
-    pub template: String,
-    pub gen: String,
-    pub dest: String,
+    pub template: PathBuf,
+    pub gen: PathBuf,
+    pub dest: PathBuf,
 }
 
 impl TemplateFiles {
-    pub fn new(ppath: &Path, dest_dir: String) -> TemplateFiles {
-        let gen = Path::new("/tmp").join(Path::new(ppath.file_name().unwrap()));
-        let dest = Path::new(&*dest_dir).join(*&ppath);
-        TemplateFiles {
-            template: ppath.to_str().unwrap().to_string(),
-            gen: gen.to_str().unwrap().to_string(),
-            dest: dest.to_str().unwrap().to_string(),
-        }
+    pub fn new(in_template: PathBuf, out_file: PathBuf) -> Option<TemplateFiles> {
+        let gen = PathBuf::from("/tmp").join(PathBuf::from(out_file.file_name().unwrap()));
+        Some(TemplateFiles {
+            template: in_template,
+            gen: gen,
+            dest: out_file,
+        })
     }
 }
 
 pub enum Generated<'r> {
     RText(&'r TemplateFiles),
-    RBinary(&'r TemplateFiles),
+    _RBinary(&'r TemplateFiles),
 }
 
-pub fn generate_recommended<'r>(
-    map: &HashMap<String, String>,
-    files: &'r TemplateFiles,
-) -> Result<Generated<'r>, String> {
-    let path = Path::new(files.template.as_str());
-    println!("open template {:?}", path);
-    let infile: Result<File, Error> = File::open(&path);
+pub fn generate_recommended<'r>( map: &HashMap<String, String>, files: &'r TemplateFiles) -> Result<Generated<'r>, String> {
+    println!("open template {:?}", files.template);
+    let infile: Result<File, Error> = File::open(&files.template);
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
     let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
     let reader = BufReader::new(infile.unwrap());
@@ -51,7 +47,7 @@ pub fn generate_recommended<'r>(
         .write(true)
         .create(true)
         .truncate(true)
-        .open(Path::new(files.gen.as_str()))
+        .open(&files.gen)
         .unwrap();
     for line in reader.lines() {
         let l = line.unwrap();
@@ -84,7 +80,7 @@ pub fn generate_recommended<'r>(
     return Ok(Generated::RText(files));
 }
 
-fn merge(template: &Path, path: &Path, path2: &Path) -> () {
+fn merge(template: & PathBuf, path: & PathBuf, path2: & PathBuf) -> bool {
     let status = Command::new("vim")
         .arg("-d")
         .arg(template.as_os_str())
@@ -94,39 +90,48 @@ fn merge(template: &Path, path: &Path, path2: &Path) -> () {
         .expect("failed to execute process");
 
     println!("with: {}", status);
-    assert!(status.success());
+    status.success()
 }
 
-pub fn create_from(template: &Path, path: &Path, destp: &Path) {
-    create_dir(destp.parent());
-    match diff(path, destp) {
-        DiffStatus::NoChanges => println!("no changes '{}'", destp.display()),
-        DiffStatus::Failed => println!("diff failed '{}'", destp.display()),
+pub fn create_from<'a>(template: &'a PathBuf, path: &'a PathBuf, dest: &'a PathBuf) -> Result< DiffStatus, Error> {
+    create_dir(dest.parent());
+    let status = diff(&path, &dest);
+    match status  {
+        DiffStatus::NoChanges => {
+            println!("no changes '{}'", dest.display());
+        },
+        DiffStatus::Failed => println!("diff failed '{}'", dest.display()),
         DiffStatus::NewFile => {
-            println!("create '{}'", destp.display());
-            std::fs::copy(path, destp).expect("create_from: copy failed:");
+            println!("create '{}'", dest.display());
+            std::fs::copy(path, dest).expect("create_from: copy failed:");
         }
-        DiffStatus::Changed => {
+        DiffStatus::Changed(difftext) => {
             let ans = ask(format!(
-                "files don't match: {} {} (c)opy (m)erge (s)kip",
-                path.display(),
-                destp.display()
+                "files don't match: {} {} (c)opy (m)erge (s)kip (p)rint diff",
+                path.to_str().expect("invalid path"),
+                dest.to_str().expect("invalid test"),
             ));
             println!("you answered '{}'", ans);
             match ans.as_ref() {
+                "p" => {
+                    println!("{:?}", difftext);
+                }
                 "s" => {
-                    println!("skipping cp {} {}", path.display(), destp.display());
+                    println!("skipping cp {} {}", path.display(), dest.display());
                 }
                 "m" => {
-                    merge(template, path, destp);
-                    diff(path, destp);
-                    create_from(template, path, destp);
+                    let _status_code = merge(template, path, dest);
+                    let _status = diff(&path, &dest);
+                    create_from(template, &path, dest).expect("cannot create dest from template");
                 }
                 "c" => {
-                    std::fs::copy(path, destp).expect("copy failed");
+                    std::fs::copy(path, dest).expect("copy failed");
                 }
-                _ => create_from(template, path, destp), //repeat diff and question
+                _ => {
+                    create_from(template, &path, dest).expect("cannot create dest from template");
+                }
             }
         }
     }
+    Ok(status)
 }

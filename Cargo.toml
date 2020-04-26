@@ -12,3 +12,15 @@ getopts = "*"
 glob = "*"
 tempfile = "*"
 rand = "*"
+
+[lib]
+name = "drt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "drtrun"
+path = "src/bin/drtrun.rs"
+
+[[bin]]
+name = "drt"
+path = "src/main.rs"
