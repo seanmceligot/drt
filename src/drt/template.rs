@@ -36,7 +36,8 @@ pub enum Generated<'r> {
     _RBinary(&'r TemplateFiles),
 }
 
-pub fn generate_recommended<'r>( map: &HashMap<String, String>, files: &'r TemplateFiles) -> Result<Generated<'r>, String> {
+// creates the tmp file for comparing to the dest file
+pub fn generate_recommended_file<'fs,'f>( map: &'fs HashMap<String, String>, files: &'f TemplateFiles) -> Result<Generated<'f>, Error> {
     println!("open template {:?}", files.template);
     let infile: Result<File, Error> = File::open(&files.template);
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
@@ -93,17 +94,22 @@ fn merge(template: & PathBuf, path: & PathBuf, path2: & PathBuf) -> bool {
     status.success()
 }
 
-pub fn create_from<'a>(template: &'a PathBuf, path: &'a PathBuf, dest: &'a PathBuf) -> Result< DiffStatus, Error> {
+pub fn create_from<'f>(template: &'f PathBuf, path: &'f PathBuf, dest: &'f PathBuf) -> Result< DiffStatus, Error> {
     create_dir(dest.parent());
     let status = diff(&path, &dest);
     match status  {
         DiffStatus::NoChanges => {
             println!("no changes '{}'", dest.display());
+            Ok(DiffStatus::NoChanges)
         },
-        DiffStatus::Failed => println!("diff failed '{}'", dest.display()),
+        DiffStatus::Failed => { 
+            println!("diff failed '{}'", dest.display());
+            Ok(DiffStatus::Failed)
+        }
         DiffStatus::NewFile => {
             println!("create '{}'", dest.display());
             std::fs::copy(path, dest).expect("create_from: copy failed:");
+            Ok(DiffStatus::NewFile)
         }
         DiffStatus::Changed(difftext) => {
             let ans = ask(format!(
@@ -131,7 +137,7 @@ pub fn create_from<'a>(template: &'a PathBuf, path: &'a PathBuf, dest: &'a PathB
                     create_from(template, &path, dest).expect("cannot create dest from template");
                 }
             }
+            Ok(DiffStatus::Changed(difftext))
         }
     }
-    Ok(status)
 }

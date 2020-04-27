@@ -9,7 +9,6 @@ use std::io::BufReader;
 use std::io::Error;
 
 pub fn _properties(map: &mut HashMap<String, String>, property_file: String) -> Result<(), Error> {
-    //let system =  "system.config";
     let path = Path::new(property_file.as_str());
     println!("open {:?}", path);
     let file = File::open(&path)?;

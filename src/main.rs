@@ -10,8 +10,10 @@ use std::env;
 use std::path::PathBuf;
 use std::str;
 mod drt;
-use drt::template::{Generated, TemplateFiles, create_from, generate_recommended};
+use drt::template::{Generated, TemplateFiles, create_from, generate_recommended_file};
 use drt::diff::{diff};
+use std::io::Error;
+use drt::diff::DiffStatus;
 
 enum Sink<'r> {
     SyncBinaryFile(&'r TemplateFiles),
@@ -37,47 +39,47 @@ fn _report(sink: Sink) {
         }
     }
 }
-fn create_or_diff(sink: Sink) {
+fn create_or_diff(sink: Sink) -> Result< DiffStatus, Error>  {
     match sink {
         Sink::SyncNewFile(files) => {
-            create_from(files.template, files.gen, files.dest);
+            create_from(&files.template, &files.gen, &files.dest)
         }
         Sink::SyncTextFile(files) => {
             diff(&files.gen, &files.dest);
-            create_from(files.template, files.gen, files.dest);
+            create_from(&files.template, &files.gen, &files.dest)
         }
         Sink::SyncBinaryFile(files) => {
             if !files.dest.exists() {
-                create_from(files.template, files.gen, files.dest);
+                create_from(&files.template, &files.gen, &files.dest)
+            } else {
+                // TODO ask
+                create_from(&files.template, &files.gen, &files.dest)
             }
         }
     }
 }
 //fn get_x<'r>(p: &'r Point) -> &'r f64 { &p.x }
-fn generated_to_sink<'r>(generated: Result<Generated<'r>, String>) -> Result<Sink<'r>, String> {
+fn generated_to_sink<'f>(generated: Generated<'f>) -> Result<Sink<'f>, Error> {
     match generated {
-        Err(why) => return Err(why),
-        Ok(g) => match g {
-            Generated::RText(files) => {
-                let exists = files.dest.exists();
-                if exists {
-                    return Ok(Sink::SyncTextFile(files));
-                } else {
-                    return Ok(Sink::SyncNewFile(files));
-                }
+        Generated::RText(files) => {
+            let exists = files.dest.exists();
+            if exists {
+                return Ok(Sink::SyncTextFile(files));
+            } else {
+                return Ok(Sink::SyncNewFile(files));
             }
-            Generated::_RBinary(files) => {
-                let exists = files.dest.exists();
-                if exists {
-                    return Ok(Sink::SyncBinaryFile(files));
-                } else {
-                    return Ok(Sink::SyncNewFile(files));
-                }
+        }
+        Generated::_RBinary(files) => {
+            let exists = files.dest.exists();
+            if exists {
+                return Ok(Sink::SyncBinaryFile(files));
+            } else {
+                return Ok(Sink::SyncNewFile(files));
             }
-        },
+        }
     }
 }
-fn process_dir(pattern: &str) -> Vec<PathBuf> {
+fn _process_dir(pattern: &str) -> Vec<PathBuf> {
     let mut vec = Vec::new();
     println!("glob {}", pattern);
 
@@ -105,7 +107,7 @@ enum Type {
     Variable,
     Unknown
 }
-fn drain_to(mut input: String, ch: char) -> String {
+fn _drain_to(mut input: String, ch: char) -> String {
     let offset = input.find(ch).unwrap_or(input.len());
     let st: String = input.drain(..offset+1).collect();
     return st
@@ -128,23 +130,12 @@ fn parse_type(input: String) -> (Type, String) {
     }
 }
 // v n=1 v y=hello of out1/my.config t project/my.config
-fn process_template_file(map: HashMap<String,String>, files: TemplateFiles) {
-    //for files in files_it {
-    //files: core::iter::Map<core::slice::Iter<'_, std::path::PathBuf>
-    let gen = generate_recommended(&map, &files);
-    let result_sink = generated_to_sink(gen);
-    //  let gens = files_it.map(|&files| generate_recommended(&map, files));
-    //let sinks = gens.map(|gen| generated_to_sink(gen));
-    //for result_sink in sinks {
-    match result_sink {
-        Err(msg) => println!("err: {}", msg),
-        Ok(sink) => {
-            //report(sink);
-            create_or_diff(sink);
-        }
-    }
+fn process_template_file<'f>(map: &'f HashMap<String,String>, template_file: TemplateFiles) -> Result<DiffStatus, Error> {
+    let gen = generate_recommended_file(&map, &template_file)?;
+    let sink = generated_to_sink(gen)?;
+    create_or_diff(sink)
 }
-fn main() {
+fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
 
@@ -156,36 +147,36 @@ fn main() {
     let matches = opts.parse(&args[1..]).unwrap();
     if matches.opt_present("h") {
         print_usage(&program, opts);
-        return;
+        return Ok(())
     }
     let is_live = matches.opt_present("live");
     let mut vars: HashMap<String, String> = HashMap::new();
     let mut task_vars: HashMap<String, String> = HashMap::new();
     for f in matches.free {
-        let tok_type = parse_type(f);
-        match tok_type {
+        match parse_type(f) {
             (Type::Template, remain) =>  {
                 let template_file = PathBuf::from(remain);
                 let dest_file = PathBuf::from(task_vars.get("out_file").unwrap());
                 let files = TemplateFiles::new(template_file, dest_file).unwrap();
-                process_template_file(vars, files)
-
+                process_template_file(&vars, files)?;
             },
             (Type::OutputFile, remain) => {
-                task_vars.insert("out_file", remain)
+                task_vars.insert(String::from("out_file"), remain);
             },
             (Type::InputFile, remain) => {
-                task_vars.insert("in_file", remain)
+                task_vars.insert(String::from("in_file"), remain);
             },
             (Type::Variable, remain) => {
                 let ss = remain.splitn(2, "=").collect::<Vec<_>>();
                 let (key,val) = (ss[0], ss[1]);
                 vars.insert(String::from(key), String::from(val));
             },
-            (Type::Unknown, _remain) => {}
+            (Type::Unknown, _remain) => {
+            }
             
         }
     }
     println!("vars {:#?}", vars);
     println!("is_live {}", is_live);
+    Ok(())
 }
