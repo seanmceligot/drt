@@ -1,6 +1,5 @@
 extern crate getopts;
 extern crate glob;
-#[allow(dead_code)]
 extern crate regex;
 
 use self::glob::glob;
@@ -99,10 +98,12 @@ fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
     print!("{}", opts.usage(&brief));
 }
+#[derive(Debug)]
 enum Action {
     Template,
     None,
 }
+#[derive(Debug)]
 enum Type {
     Template,
     InputFile,
@@ -119,8 +120,9 @@ fn _drain_to(mut input: String, ch: char) -> String {
 
 //|| input i:n=1 s:name=sean t:myconfig:project/my.config
 //|| input of:f:mkdir,out1/my.config
-fn parse_type(mut inputs: &mut Iter<String>) -> Type {
+fn parse_type(inputs: &mut Iter<String>) -> Type {
     let maybe_input = inputs.next();
+    println!("input {:?}", maybe_input);
     match maybe_input {
         None => Type::End,
         Some(input) => match input.as_str() {
@@ -134,30 +136,48 @@ fn parse_type(mut inputs: &mut Iter<String>) -> Type {
 }
 // v n=1 v y=hello of out1/my.config t project/my.config
 fn process_template_file<'t>(
-    map: &'t HashMap<String, String>,
+    vars: &'t HashMap<&'_ str, &'_ str>,
     template_file: TemplateFiles,
 ) -> Result<DiffStatus, Error> {
-    let gen = generate_recommended_file(&map, &template_file)?;
+    let gen = generate_recommended_file(vars, &template_file)?;
     let sink = generated_to_sink(gen)?;
     create_or_diff(sink)
 }
-fn process_type<'g>(
-    vars: &'g mut HashMap<&'g str, &'g str>,
-    task_vars: &'g mut HashMap<&'g str, &'g str>,
-    remain: &'g mut Iter<String>,
-) -> Result<(Type, Type), Error> {
-    let mut action: Type = Type::Unknown;
+
+fn use_mut<'t>(
+	vars: &'t mut HashMap<&'_ str, &'_ str>
+) {
+  vars.insert("a", "one");
+}
+
+///
+/// # Example
+///
+/// ```
+/// let remain = v!["of", "out.file", "t", "in.template"]
+/// let (current_action, next_action) = process_type(vars, task_vars, remain)?;
+/// ```
+fn process_type<'a>(
+    vars:      &'a mut HashMap<&'a str, &'a str>,
+    task_vars: &'a mut HashMap<&'a str, &'a str>,
+    remain:    &'a mut Iter   <'a, String>,
+) -> Result<(Action, Action), Error> {
+    let mut current_action: Action = Action::None;
     loop {
-        let t = parse_type(remain);
+        let t = parse_type(remain); 
+    	println!("parse_type retuned {:#?}", t);
         match t {
-            Type::Template => match action {
-                Type::Unknown => return Ok((action, Type::Template)),
-                _ => {
+            Type::Template => match current_action {
+                Action::None => {
                     let template_file_name = remain
                         .next()
                         .expect("t template_file_name: template_file_name required argument");
                     task_vars.insert("template_file_name", template_file_name);
-                    action = Type::Template;
+                    current_action = Action::Template;
+                }
+                _ => {
+                    // we reached the second action. return the current_action and process this later
+                    return Ok((current_action, Action::Template));
                 }
             },
             Type::OutputFile => {
@@ -184,15 +204,72 @@ fn process_type<'g>(
                 vars.insert(key, val);
             }
             Type::Unknown => {
-                return Ok((action, Type::Unknown));
+                return Ok((current_action, Action::None));
             }
             Type::End => {
-                return Ok((action, Type::End));
+                return Ok((current_action, Action::None));
             }
         }
     }
 }
+fn do_action<'g>(
+    vars: &'g HashMap<&'g str, &'g str>,
+    task_vars: &'g HashMap<&'g str, &'g str>,
+    action: Action,
+) -> Result<(), Error> {
+    match action {
+        Action::Template => {
+            let template_file_name = task_vars
+                .get("template_file_name")
+                .expect("template_file_name required");
+            let template_file = PathBuf::from(template_file_name);
+            let output_file_name = task_vars
+                .get("output_file_name")
+                .expect("output_file_name required");
+            let output_file = PathBuf::from(output_file_name);
 
+            let files = TemplateFiles::new(template_file, output_file).unwrap();
+            process_template_file(&vars, files)?;
+            Ok(())
+        }
+        Action::None => {
+            Ok(())
+        }
+    }
+}
+fn use_immut<'t>(vars: &'t HashMap<&str, &str>) {
+    println!("vars {:#?}", vars.get("a"));
+}
+
+
+#[test]
+fn mut_test() {
+    let mut vars: HashMap<&str, &str> = HashMap::new();
+    use_mut(&mut vars);
+    use_immut(&vars);
+
+}
+#[test]
+fn test_process_type() {
+    let mut vars: HashMap<&str, &str> = HashMap::new();
+    let remain = vec![
+	String::from("v"), 
+	String::from("n=1"), 
+	String::from("v"), 
+	String::from("y=hello"), 
+	String::from("of"),
+	String::from("out1/my.config"),
+	String::from("t"), 
+	String::from("project/my.config")];
+    let mut task_vars: HashMap<&str, &str> = HashMap::new();
+    let x = process_type(&mut vars, &mut task_vars, &mut remain.iter());
+    let (action, next_type) = x.expect("process_type failed");
+    println!("action {:#?}", action);
+    match action {
+    	Action::Template => {},
+    	_ => panic!("expected Template"),
+    }
+}
 fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -211,16 +288,19 @@ fn main() -> Result<(), std::io::Error> {
     // begin 'g
     let mut vars: HashMap<&str, &str> = HashMap::new();
 
-    let mut remain = &mut matches.free.iter();
+    let remain = &mut matches.free.iter();
 
     // begin 't
-    let mut task_vars: HashMap<&str, &str> = HashMap::new();
-    let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
-    //let template_file = PathBuf::from(template_file);
-    //let files = TemplateFiles::new(template_file, dest_file).unwrap();
-    //process_template_file(&vars, files)?;
+    {
+        let mut task_vars: HashMap<&str, &str> = HashMap::new();
+        let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
+        //println!("task_vars {:#?}", &task_vars);
+        //println!("vars {:#?}", &vars);
+        println!("action {:#?}", action);
+        println!("next_type {:#?}", next_type);
+        //do_action(&vars, &task_vars, action);
+    }
     //println!("task_vars {:#?}", task_vars);
-    //println!("vars {:#?}", vars);
     println!("is_live {}", is_live);
     Ok(())
 }

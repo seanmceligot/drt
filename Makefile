@@ -1,7 +1,11 @@
 
-default: build
+default: test build run
 
-test: build run
+test: 
+	cargo test
+
+format: 
+	cargo fmt
 
 verbose:
 	cargo build --verbose

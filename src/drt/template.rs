@@ -38,7 +38,7 @@ pub enum Generated<'r> {
 
 // creates the tmp file for comparing to the dest file
 pub fn generate_recommended_file<'fs, 'f>(
-    map: &'fs HashMap<String, String>,
+    vars: &'fs HashMap<&str, &str>,
     files: &'f TemplateFiles,
 ) -> Result<Generated<'f>, Error> {
     println!("open template {:?}", files.template);
@@ -59,18 +59,21 @@ pub fn generate_recommended_file<'fs, 'f>(
             Some(cap) => {
                 let t = cap.name("t").unwrap().as_str();
                 let k = cap.name("k").unwrap().as_str();
-                let v = map.get(k);
+                let v = vars.get(k);
                 println!("t {:?}", t);
                 println!("k {:?}", k);
                 println!("v {:?}", v);
                 println!("l {:?}", l);
 
                 if v.is_some() {
-                    // change match to map[k[
-                    writeln!(tmpfile, "{}", re.replace(l.as_str(), v.unwrap().as_str()))
+                    // change match to vars[k[
+                    let value: &str = v.unwrap();
+                    //let value: &str = "VALUE";
+                    // replace line: |@@key@@| with line |value|
+                    writeln!(tmpfile, "{}", re.replace(l.as_str(), value))
                         .expect("Cannot Write to tmp file")
                 } else {
-                    // found varable but no key in map so leave line alone
+                    // found varable but no key in vars so leave line alone
                     println!("warn: NOT FOUND {}", k);
                     writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
                 };
