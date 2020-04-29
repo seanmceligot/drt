@@ -60,7 +60,7 @@ fn create_or_diff(sink: Sink) -> Result< DiffStatus, Error>  {
     }
 }
 //fn get_x<'r>(p: &'r Point) -> &'r f64 { &p.x }
-fn generated_to_sink<'f>(generated: Generated<'f>) -> Result<Sink<'f>, Error> {
+fn generated_to_sink<'t>(generated: Generated<'t>) -> Result<Sink<'t>, Error> {
     match generated {
         Generated::RText(files) => {
             let exists = files.dest.exists();
@@ -111,6 +111,7 @@ enum Type {
     OutputFile,
     Variable,
     Unknown,
+    End,
 }
 fn _drain_to(mut input: String, ch: char) -> String {
     let offset = input.find(ch).unwrap_or(input.len());
@@ -120,27 +121,71 @@ fn _drain_to(mut input: String, ch: char) -> String {
 
 //|| input i:n=1 s:name=sean t:myconfig:project/my.config
 //|| input of:f:mkdir,out1/my.config
-fn parse_type(mut inputs: &mut Iter<String>) -> Option<Type> {
-    let input = inputs.next()?;
-    println!("input {}", input);
-    //let ss = input.splitn(2, " ").collect::<Vec<_>>();
-    //let (typename, remain) = (ss[0], ss[1]);
-    //println!("typename {}", typename);
-    //println!("remain {}", remain);
-    //let next = String::from(remain);
-    match input.as_str() {
-        "t" => Some(Type::Template),
-        "of" => Some(Type::OutputFile),
-        "if" => Some(Type::InputFile),
-        "v" => Some(Type::Variable),
-        _ => Some(Type::Unknown)
-    }
+fn parse_type(mut inputs: &mut Iter<String>) -> Type {
+    let maybe_input = inputs.next();
+    match maybe_input {
+        None => Type::End,
+        Some(input) => {
+            match input.as_str() {
+                "t" => Type::Template,
+                "of" => Type::OutputFile,
+                "if" => Type::InputFile,
+                "v" => Type::Variable,
+                _ => Type::Unknown
+            }
+        }
+       } 
 }
 // v n=1 v y=hello of out1/my.config t project/my.config
-fn process_template_file<'f>(map: &'f HashMap<String,String>, template_file: TemplateFiles) -> Result<DiffStatus, Error> {
+fn process_template_file<'t>(map: &'t HashMap<String,String>, template_file: TemplateFiles) -> Result<DiffStatus, Error> {
     let gen = generate_recommended_file(&map, &template_file)?;
     let sink = generated_to_sink(gen)?;
     create_or_diff(sink)
+}
+fn process_type<'g>(
+        vars: &'g mut HashMap<&'g str,&'g str>, 
+        task_vars: &'g mut HashMap<&'g str, &'g str>, 
+        remain: &'g mut Iter<String>) 
+        -> Result<(Type, Type), Error> {
+    let mut action:Type = Type::Unknown;
+    loop {
+    	let t = parse_type(remain);
+	match t {
+	    Type::Template =>  {
+                match action {
+                    Type::Unknown => {
+                        return Ok((action, Type::Template))
+                    },
+                    _ => {
+                        let template_file_name = remain.next().expect("t template_file_name: template_file_name required argument");
+                        task_vars.insert("template_file_name", template_file_name);
+                        action = Type::Template;
+                    }
+                }
+	    },
+	    Type::OutputFile => {
+		let out_file_name = remain.next().expect("of out_file_name: out_file_name required argument");
+		task_vars.insert("out_file_name", out_file_name);
+	    },
+	    Type::InputFile => {
+		let in_file_name = remain.next().expect("of in_file_name: in_file_name required argument");
+		task_vars.insert("in_file_name", in_file_name);
+	    },
+	    Type::Variable => {
+		let ss = remain.next().expect("expected key=val").splitn(2, "=").collect::<Vec<_>>();
+    		println!("split{:#?}", ss);
+                assert!(ss.len() == 2, "expected key=val after v");
+		let (key,val) = (ss[0], ss[1]);
+		vars.insert(key, val);
+	    },
+	    Type::Unknown => {
+                return Ok((action, Type::Unknown));
+	    },
+	    Type::End => {
+                return Ok((action, Type::End));
+	    },	
+	}
+    }
 }
 
 fn main() -> Result<(), std::io::Error> {
@@ -158,46 +203,19 @@ fn main() -> Result<(), std::io::Error> {
         return Ok(())
     }
     let is_live = matches.opt_present("live");
+    // begin 'g
     let mut vars: HashMap<&str, &str> = HashMap::new();
-    let mut task_vars: HashMap<&str, &str> = HashMap::new();
    
-    let mut remain =  &mut matches.free.iter();
-    let mut action = Type::Unknown;
-    loop {
-    	let t = parse_type(remain);
-	match t {
-	    Some(Type::Template) =>  {
-		let template_file_name = remain.next().expect("t template_file_name: template_file_name required argument");
-		task_vars.insert("template_file_name", template_file_name);
-		action = Type::Template;
-	    },
-	    Some(Type::OutputFile) => {
-		let out_file_name = remain.next().expect("of out_file_name: out_file_name required argument");
-		task_vars.insert("out_file_name", out_file_name);
-	    },
-	    Some(Type::InputFile) => {
-		let in_file_name = remain.next().expect("of in_file_name: in_file_name required argument");
-		task_vars.insert("in_file_name", in_file_name);
-	    },
-	    Some(Type::Variable) => {
-		let ss = remain.next().expect("expected key=val").splitn(2, "=").collect::<Vec<_>>();
-    		println!("split{:#?}", ss);
-		let (key,val) = (ss[0], ss[1]);
-		vars.insert(key, val);
-	    },
-	    Some(Type::Unknown) => {
-		break;
-	    },
-	    None => {
-		break;
-	    },	
-	}
-    }
+    let mut remain = &mut matches.free.iter();
+    
+    // begin 't
+    let mut task_vars: HashMap<&str, &str> = HashMap::new();
+    let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
     //let template_file = PathBuf::from(template_file);
     //let files = TemplateFiles::new(template_file, dest_file).unwrap();
     //process_template_file(&vars, files)?;
-    println!("task_vars {:#?}", task_vars);
-    println!("vars {:#?}", vars);
+    //println!("task_vars {:#?}", task_vars);
+    //println!("vars {:#?}", vars);
     println!("is_live {}", is_live);
     Ok(())
 }
