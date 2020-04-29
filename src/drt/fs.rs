@@ -1,6 +1,6 @@
+use drt::userinput::ask;
 use std::convert::AsRef;
 use std::path::Path;
-use drt::userinput::ask;
 
 pub fn create_dir(maybe_path: Option<&Path>) {
     match maybe_path {

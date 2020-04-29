@@ -1,18 +1,18 @@
+use drt::diff::diff;
+use drt::diff::DiffStatus;
+use drt::fs::create_dir;
+use drt::userinput::ask;
 #[allow(dead_code)]
 use regex::Regex;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error;
-use std::io::prelude::*;
 use std::path::PathBuf;
 use std::process::Command;
-use drt::diff::DiffStatus;
-use drt::fs::create_dir;
-use drt::diff::diff;
-use drt::userinput::ask;
 
 pub struct TemplateFiles {
     pub template: PathBuf,
@@ -37,7 +37,10 @@ pub enum Generated<'r> {
 }
 
 // creates the tmp file for comparing to the dest file
-pub fn generate_recommended_file<'fs,'f>( map: &'fs HashMap<String, String>, files: &'f TemplateFiles) -> Result<Generated<'f>, Error> {
+pub fn generate_recommended_file<'fs, 'f>(
+    map: &'fs HashMap<String, String>,
+    files: &'f TemplateFiles,
+) -> Result<Generated<'f>, Error> {
     println!("open template {:?}", files.template);
     let infile: Result<File, Error> = File::open(&files.template);
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
@@ -81,7 +84,7 @@ pub fn generate_recommended_file<'fs,'f>( map: &'fs HashMap<String, String>, fil
     return Ok(Generated::RText(files));
 }
 
-fn merge(template: & PathBuf, path: & PathBuf, path2: & PathBuf) -> bool {
+fn merge(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
     let status = Command::new("vim")
         .arg("-d")
         .arg(template.as_os_str())
@@ -94,15 +97,19 @@ fn merge(template: & PathBuf, path: & PathBuf, path2: & PathBuf) -> bool {
     status.success()
 }
 
-pub fn create_from<'f>(template: &'f PathBuf, path: &'f PathBuf, dest: &'f PathBuf) -> Result< DiffStatus, Error> {
+pub fn create_from<'f>(
+    template: &'f PathBuf,
+    path: &'f PathBuf,
+    dest: &'f PathBuf,
+) -> Result<DiffStatus, Error> {
     create_dir(dest.parent());
     let status = diff(&path, &dest);
-    match status  {
+    match status {
         DiffStatus::NoChanges => {
             println!("no changes '{}'", dest.display());
             Ok(DiffStatus::NoChanges)
-        },
-        DiffStatus::Failed => { 
+        }
+        DiffStatus::Failed => {
             println!("diff failed '{}'", dest.display());
             Ok(DiffStatus::Failed)
         }

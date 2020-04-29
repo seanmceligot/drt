@@ -5,7 +5,7 @@ use std::vec::IntoIter;
 
 #[derive(Debug)]
 pub struct DiffText<'f> {
-    pub text: &'f IntoIter<u8>
+    pub text: &'f IntoIter<u8>,
 }
 pub enum DiffStatus {
     NoChanges,
@@ -32,4 +32,3 @@ pub fn diff<'f>(path: &'f PathBuf, path2: &'f PathBuf) -> DiffStatus {
         }
     }
 }
-
