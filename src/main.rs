@@ -15,6 +15,7 @@ use drt::Mode;
 use drt::template::{create_from, generate_recommended_file, Generated, TemplateFiles};
 use std::io::Error;
 use std::slice::Iter;
+use std::collections::hash_map::Iter as HashIter;
 
 enum Sink<'r> {
     SyncBinaryFile(&'r TemplateFiles),
@@ -165,9 +166,9 @@ fn use_mut<'t>(
 /// let remain = v!["of", "out.file", "t", "in.template"]
 /// let (current_action, next_action) = process_type(vars, task_vars, remain)?;
 /// ```
-fn process_type<'a>(
-    vars:      &'a mut HashMap<&'a str, &'a str>,
-    task_vars: &'a mut HashMap<&'a str, &'a str>,
+fn process_type<'a,'b>(
+    vars:      &'b mut HashMap<&'a str, &'a str>,
+    task_vars: &'b mut HashMap<&'a str, &'a str>,
     remain:    &'a mut Iter   <'a, String>,
 ) -> Result<(Action, Action), Error> {
     let mut current_action: Action = Action::None;
@@ -277,7 +278,7 @@ fn test_process_type() {
     let (action, next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
     println!("action {:#?}", action);
     match action { Action::Template => {}, _ => panic!("expected Template"), }
-    //do_action(Mode::Passive, &vars, &task_vars, Action::Template);
+    do_action(Mode::Passive, &vars, &task_vars, Action::Template);
 }
 //#[test]
 //fn test_do_action() {
