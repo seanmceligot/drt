@@ -11,6 +11,7 @@ use std::str;
 mod drt;
 use drt::diff::diff;
 use drt::diff::DiffStatus;
+use drt::Mode;
 use drt::template::{create_from, generate_recommended_file, Generated, TemplateFiles};
 use std::io::Error;
 use std::slice::Iter;
@@ -39,19 +40,18 @@ fn _report(sink: Sink) {
         }
     }
 }
-fn create_or_diff(sink: Sink) -> Result<DiffStatus, Error> {
+fn create_or_diff(mode: Mode, sink: Sink) -> Result<DiffStatus, Error> {
     match sink {
-        Sink::SyncNewFile(files) => create_from(&files.template, &files.gen, &files.dest),
+        Sink::SyncNewFile(files) => create_from(mode, &files.template, &files.gen, &files.dest),
         Sink::SyncTextFile(files) => {
             diff(&files.gen, &files.dest);
-            create_from(&files.template, &files.gen, &files.dest)
+            create_from(mode, &files.template, &files.gen, &files.dest)
         }
         Sink::SyncBinaryFile(files) => {
             if !files.dest.exists() {
-                create_from(&files.template, &files.gen, &files.dest)
+                create_from(mode, &files.template, &files.gen, &files.dest)
             } else {
-                // TODO ask
-                create_from(&files.template, &files.gen, &files.dest)
+                create_from(mode, &files.template, &files.gen, &files.dest)
             }
         }
     }
@@ -117,6 +117,13 @@ fn _drain_to(mut input: String, ch: char) -> String {
     let st: String = input.drain(..offset + 1).collect();
     return st;
 }
+#[test]
+fn test_parse_type() {
+    match parse_type(&mut vec![String::from("t")].iter()) { Type::Template => {}, _ => panic!("expected Template"), }
+    match parse_type(&mut vec![String::from("of")].iter()) { Type::OutputFile => {}, _ => panic!("expected Template"), }
+    match parse_type(&mut vec![String::from("if")].iter()) { Type::InputFile => {}, _ => panic!("expected Template"), }
+    match parse_type(&mut vec![String::from("v")].iter()) { Type::Variable => {}, _ => panic!("expected Template"), }
+}
 
 //|| input i:n=1 s:name=sean t:myconfig:project/my.config
 //|| input of:f:mkdir,out1/my.config
@@ -136,12 +143,13 @@ fn parse_type(inputs: &mut Iter<String>) -> Type {
 }
 // v n=1 v y=hello of out1/my.config t project/my.config
 fn process_template_file<'t>(
+    mode: Mode,
     vars: &'t HashMap<&'_ str, &'_ str>,
     template_file: TemplateFiles,
 ) -> Result<DiffStatus, Error> {
     let gen = generate_recommended_file(vars, &template_file)?;
     let sink = generated_to_sink(gen)?;
-    create_or_diff(sink)
+    create_or_diff(mode, sink)
 }
 
 fn use_mut<'t>(
@@ -213,6 +221,7 @@ fn process_type<'a>(
     }
 }
 fn do_action<'g>(
+    mode: Mode,
     vars: &'g HashMap<&'g str, &'g str>,
     task_vars: &'g HashMap<&'g str, &'g str>,
     action: Action,
@@ -229,7 +238,7 @@ fn do_action<'g>(
             let output_file = PathBuf::from(output_file_name);
 
             let files = TemplateFiles::new(template_file, output_file).unwrap();
-            process_template_file(&vars, files)?;
+            process_template_file(mode, &vars, files)?;
             Ok(())
         }
         Action::None => {
@@ -237,39 +246,47 @@ fn do_action<'g>(
         }
     }
 }
+
 fn use_immut<'t>(vars: &'t HashMap<&str, &str>) {
     println!("vars {:#?}", vars.get("a"));
 }
-
 
 #[test]
 fn mut_test() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
     use_mut(&mut vars);
     use_immut(&vars);
-
 }
+
 #[test]
 fn test_process_type() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
     let remain = vec![
 	String::from("v"), 
-	String::from("n=1"), 
+	String::from("test=1"), 
 	String::from("v"), 
-	String::from("y=hello"), 
+	String::from("user=myuser"), 
+	String::from("v"), 
+	String::from("base.dir=mybase"), 
 	String::from("of"),
 	String::from("out1/my.config"),
 	String::from("t"), 
 	String::from("project/my.config")];
     let mut task_vars: HashMap<&str, &str> = HashMap::new();
-    let x = process_type(&mut vars, &mut task_vars, &mut remain.iter());
-    let (action, next_type) = x.expect("process_type failed");
+    let mut ri = remain.iter();
+    let (action, next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
     println!("action {:#?}", action);
-    match action {
-    	Action::Template => {},
-    	_ => panic!("expected Template"),
-    }
+    match action { Action::Template => {}, _ => panic!("expected Template"), }
+    //do_action(Mode::Passive, &vars, &task_vars, Action::Template);
 }
+//#[test]
+//fn test_do_action() {
+//    let mut vars: HashMap<&str, &str> = HashMap::new();
+//    let mut task_vars: HashMap<&str, &str> = HashMap::new();
+//    task_vars.insert("template_file_name", "project/my.config");
+//    task_vars.insert("output_file_name", "out.config");
+//    do_action(Mode::Passive, &vars, &task_vars, Action::Template);
+//}
 fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -298,7 +315,7 @@ fn main() -> Result<(), std::io::Error> {
         //println!("vars {:#?}", &vars);
         println!("action {:#?}", action);
         println!("next_type {:#?}", next_type);
-        //do_action(&vars, &task_vars, action);
+        //do_action(vars.as_mut(), &task_vars, action);
     }
     //println!("task_vars {:#?}", task_vars);
     println!("is_live {}", is_live);

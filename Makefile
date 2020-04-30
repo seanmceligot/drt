@@ -1,5 +1,5 @@
 
-default: test build run
+default: test
 
 test: 
 	cargo test
@@ -16,7 +16,7 @@ build:
 
 run: 
 	echo cp out1/myconfig project/myconfig
-	RUST_BACKTRACE=1 cargo run --bin drt -- v n=1 v y=hello of out1/my.config t project/my.config
+	RUST_BACKTRACE=1 cargo run --bin drt -- v n=1 v y=hello v user=myuser of out1/my.config t project/my.config
 	#cargo run --bin drt -- v:n=1 v:y=hello  mkdir of out1/my.config mkdir t project/my.config
 
 r: 
