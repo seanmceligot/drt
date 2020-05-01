@@ -15,8 +15,9 @@ use drt::Mode;
 use drt::template::{create_from, generate_recommended_file, Generated, TemplateFiles};
 use std::io::Error;
 use std::slice::Iter;
-use std::collections::hash_map::Iter as HashIter;
+//use std::collections::hash_map::Iter as HashIter;
 
+#[derive(Debug)]
 enum Sink<'r> {
     SyncBinaryFile(&'r TemplateFiles),
     SyncTextFile(&'r TemplateFiles),
@@ -138,7 +139,7 @@ fn parse_type(inputs: &mut Iter<String>) -> Type {
             "of" => Type::OutputFile,
             "if" => Type::InputFile,
             "v" => Type::Variable,
-            _ => Type::Unknown,
+            _ => { println!("Unknown {}", input); Type::Unknown},
         },
     }
 }
@@ -151,12 +152,6 @@ fn process_template_file<'t>(
     let gen = generate_recommended_file(vars, &template_file)?;
     let sink = generated_to_sink(gen)?;
     create_or_diff(mode, sink)
-}
-
-fn use_mut<'t>(
-	vars: &'t mut HashMap<&'_ str, &'_ str>
-) {
-  vars.insert("a", "one");
 }
 
 ///
@@ -190,10 +185,10 @@ fn process_type<'a,'b>(
                 }
             },
             Type::OutputFile => {
-                let out_file_name = remain
+                let output_file_name = remain
                     .next()
-                    .expect("of out_file_name: out_file_name required argument");
-                task_vars.insert("out_file_name", out_file_name);
+                    .expect("of output_file_name: output_file_name required argument");
+                task_vars.insert("output_file_name", output_file_name);
             }
             Type::InputFile => {
                 let in_file_name = remain
@@ -248,17 +243,6 @@ fn do_action<'g>(
     }
 }
 
-fn use_immut<'t>(vars: &'t HashMap<&str, &str>) {
-    println!("vars {:#?}", vars.get("a"));
-}
-
-#[test]
-fn mut_test() {
-    let mut vars: HashMap<&str, &str> = HashMap::new();
-    use_mut(&mut vars);
-    use_immut(&vars);
-}
-
 #[test]
 fn test_process_type() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
@@ -277,6 +261,7 @@ fn test_process_type() {
     let mut ri = remain.iter();
     let (action, next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
     println!("action {:#?}", action);
+    println!("output_file_name {:#?}", vars.get("output_file_name"));
     match action { Action::Template => {}, _ => panic!("expected Template"), }
     do_action(Mode::Passive, &vars, &task_vars, Action::Template);
 }
@@ -294,7 +279,8 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut opts = Options::new();
     //opts.optopt("d", "dir", "project dir", "DIR");
-    opts.optopt("l", "live", "system properties", "NAME");
+    opts.optflag("i", "interactive", "ask before overwrite");
+    opts.optflag("a", "active", "overwrite without asking");
     //opts.optflag("p", "prop", "system properties");
     opts.optflag("h", "help", "print this help menu");
     let matches = opts.parse(&args[1..]).unwrap();
@@ -302,13 +288,18 @@ fn main() -> Result<(), std::io::Error> {
         print_usage(&program, opts);
         return Ok(());
     }
-    let is_live = matches.opt_present("live");
-    // begin 'g
+    let mode = if matches.opt_present("interactive") {
+	Mode::Interactive
+    } else if matches.opt_present("action") {
+	Mode::Active
+    } else {
+	Mode::Passive
+    };
     let mut vars: HashMap<&str, &str> = HashMap::new();
 
     let remain = &mut matches.free.iter();
+    println!("remain {:#?}", remain);
 
-    // begin 't
     {
         let mut task_vars: HashMap<&str, &str> = HashMap::new();
         let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
@@ -317,8 +308,7 @@ fn main() -> Result<(), std::io::Error> {
         println!("action {:#?}", action);
         println!("next_type {:#?}", next_type);
         //do_action(vars.as_mut(), &task_vars, action);
+        do_action(mode, &vars, &task_vars, action)?;
     }
-    //println!("task_vars {:#?}", task_vars);
-    println!("is_live {}", is_live);
     Ok(())
 }

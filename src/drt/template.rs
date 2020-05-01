@@ -6,7 +6,6 @@ use drt::Mode;
 #[allow(dead_code)]
 use regex::Regex;
 use std::collections::HashMap;
-use std::convert::AsRef;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
@@ -15,6 +14,7 @@ use std::io::Error;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[derive(Debug)]
 pub struct TemplateFiles {
     pub template: PathBuf,
     pub gen: PathBuf,
@@ -119,10 +119,20 @@ fn merge_active(_template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
     println!("with: {}", status);
     status.success()
 }
+fn merge_into_template(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
+    let status = Command::new("vim")
+        .arg("-d")
+        .arg(path2.as_os_str())
+        .arg(template.as_os_str())
+        .status()
+        .expect("failed to execute process");
+
+    println!("with: {}", status);
+    status.success()
+}
 fn merge_interactive(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
     let status = Command::new("vim")
         .arg("-d")
-        .arg(template.as_os_str())
         .arg(path.as_os_str())
         .arg(path2.as_os_str())
         .status()
@@ -131,8 +141,7 @@ fn merge_interactive(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> boo
     println!("with: {}", status);
     status.success()
 }
-
-pub fn create_from<'f>(
+pub fn create_from<'f,'g>(
     mode: Mode,
     template: &'f PathBuf,
     path: &'f PathBuf,
@@ -151,36 +160,46 @@ pub fn create_from<'f>(
         }
         DiffStatus::NewFile => {
             println!("create '{}'", dest.display());
+            println!("cp {:?} {:?}", path, dest);
             std::fs::copy(path, dest).expect("create_from: copy failed:");
             Ok(DiffStatus::NewFile)
         }
         DiffStatus::Changed(difftext) => {
-            let ans = ask(format!(
-                "files don't match: {} {} (c)opy (m)erge (s)kip (p)rint diff",
-                path.to_str().expect("invalid path"),
-                dest.to_str().expect("invalid test"),
-            ));
-            println!("you answered '{}'", ans);
-            match ans.as_ref() {
-                "p" => {
-                    println!("{:?}", difftext);
+            let ans = match mode {
+                Mode::Passive => 'p',
+                Mode::Active => 'c',
+                Mode::Interactive => ask(
+                    &format!( "{}: {} {} (c)opy (m)erge (s)kip print (d)iff merge to (t)emplate", "files don't match", 
+                        path.to_str().expect("invalid path"), 
+                        dest.to_str().expect("invalid test")))
+            };
+            match ans {
+                'd' => {
+                    for ch in difftext {
+                        print!("{}", ch as char)
+                    }
                 }
-                "s" => {
+                's' => {
                     println!("skipping cp {} {}", path.display(), dest.display());
                 }
-                "m" => {
+                't' => {
+                    let _status_code = merge_into_template(template, path, dest);
+                    let _status = diff(&path, &dest);
+                    create_from(mode, template, &path, dest).expect("cannot create dest from template");
+                }
+                'm' => {
                     let _status_code = merge(mode, template, path, dest);
                     let _status = diff(&path, &dest);
                     create_from(mode, template, &path, dest).expect("cannot create dest from template");
                 }
-                "c" => {
+                'c' => {
                     std::fs::copy(path, dest).expect("copy failed");
                 }
                 _ => {
                     create_from(mode, template, &path, dest).expect("cannot create dest from template");
                 }
             }
-            Ok(DiffStatus::Changed(difftext))
+            Ok(diff(&path, &dest))
         }
     }
 }

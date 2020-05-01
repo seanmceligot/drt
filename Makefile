@@ -2,7 +2,7 @@
 default: test
 
 test: 
-	cargo test
+	RUST_BACKTRACE=1 cargo test
 
 format: 
 	cargo fmt
@@ -16,11 +16,15 @@ build:
 
 run: 
 	echo cp out1/myconfig project/myconfig
-	RUST_BACKTRACE=1 cargo run --bin drt -- v n=1 v y=hello v user=myuser of out1/my.config t project/my.config
-	#cargo run --bin drt -- v:n=1 v:y=hello  mkdir of out1/my.config mkdir t project/my.config
+	RUST_BACKTRACE=1 cargo run --bin drt -- v base.dir=base_dir v test=1 v y=hello v user=myuser of out1/my.config t project/my.config
 
-r: 
-	RUST_BACKTRACE=1 cargo run --bin drtrun -- v:n=1 v:y=hello t:project/my.config of:f:mkdir,out1/my.config
+i: 
+	echo cp out1/myconfig project/myconfig
+	RUST_BACKTRACE=1 cargo run --bin drt -- --interactive v base.dir=base_dir v test=1 v y=hello v user=myuser of out1/my.config t project/my.config
+
+a: 
+	echo cp out1/myconfig project/myconfig
+	RUST_BACKTRACE=1 cargo run --bin drt -- --active v base.dir=base_dir v test=1 v y=hello v user=myuser of out1/my.config t project/my.config
 	
 clean:
 	cargo clean

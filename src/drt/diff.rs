@@ -7,13 +7,15 @@ use std::vec::IntoIter;
 pub struct DiffText<'f> {
     pub text: &'f IntoIter<u8>,
 }
+#[allow(dead_code)]
 pub enum DiffStatus {
     NoChanges,
     NewFile,
     Changed(IntoIter<u8>),
     Failed,
 }
-pub fn diff<'f>(path: &'f PathBuf, path2: &'f PathBuf) -> DiffStatus {
+#[allow(dead_code)]
+pub fn diff<'f,'g>(path: &'f PathBuf, path2: &'f PathBuf) -> DiffStatus {
     println!("diff {} {}", path.display(), path2.display());
     if !path2.exists() {
         DiffStatus::NewFile
