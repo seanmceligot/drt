@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+extern crate simple_logger;
 extern crate getopts;
 extern crate glob;
 extern crate regex;
@@ -16,6 +19,8 @@ use drt::template::{create_from, generate_recommended_file, Generated, TemplateF
 use std::io::Error;
 use std::slice::Iter;
 //use std::collections::hash_map::Iter as HashIter;
+//use log::{info, trace, warn};
+use log::Level;
 
 #[derive(Debug)]
 enum Sink<'r> {
@@ -27,16 +32,18 @@ enum Sink<'r> {
 fn _report(sink: Sink) {
     match sink {
         Sink::SyncNewFile(files) => {
-            println!("new file: {:?}", files.dest);
+            debug!("new file: {:?}", files.dest);
         }
         Sink::SyncTextFile(files) => {
+            debug!("report SyncTextFile: diff");
             diff(&files.gen, &files.dest);
         }
         Sink::SyncBinaryFile(files) => {
-            println!("binary {:?}", files.dest);
+            debug!("binary {:?}", files.dest);
             if !files.dest.exists() {
-                println!("new binary: {}", files.dest.display());
+                debug!("new binary: {}", files.dest.display());
             } else {
+                debug!("report SyncBinaryFile: diff");
                 diff(&files.gen, &files.dest);
             }
         }
@@ -46,6 +53,7 @@ fn create_or_diff(mode: Mode, sink: Sink) -> Result<DiffStatus, Error> {
     match sink {
         Sink::SyncNewFile(files) => create_from(mode, &files.template, &files.gen, &files.dest),
         Sink::SyncTextFile(files) => {
+            debug!("create_or_diff: diff");
             diff(&files.gen, &files.dest);
             create_from(mode, &files.template, &files.gen, &files.dest)
         }
@@ -81,14 +89,14 @@ fn generated_to_sink<'t>(generated: Generated<'t>) -> Result<Sink<'t>, Error> {
 }
 fn _process_dir(pattern: &str) -> Vec<PathBuf> {
     let mut vec = Vec::new();
-    println!("glob {}", pattern);
+    debug!("glob {}", pattern);
 
     match glob(pattern) {
-        Err(e1) => println!("{:?}", e1),
+        Err(e1) => debug!("{:?}", e1),
         Ok(paths) => {
             for globresult in paths {
                 match globresult {
-                    Err(glob_error) => println!("{:?}", glob_error),
+                    Err(glob_error) => debug!("{:?}", glob_error),
                     Ok(pathbuf) => vec.push(pathbuf),
                 }
             }
@@ -131,7 +139,6 @@ fn test_parse_type() {
 //|| input of:f:mkdir,out1/my.config
 fn parse_type(inputs: &mut Iter<String>) -> Type {
     let maybe_input = inputs.next();
-    println!("input {:?}", maybe_input);
     match maybe_input {
         None => Type::End,
         Some(input) => match input.as_str() {
@@ -139,7 +146,7 @@ fn parse_type(inputs: &mut Iter<String>) -> Type {
             "of" => Type::OutputFile,
             "if" => Type::InputFile,
             "v" => Type::Variable,
-            _ => { println!("Unknown {}", input); Type::Unknown},
+            _ => { debug!("Unknown {}", input); Type::Unknown},
         },
     }
 }
@@ -169,7 +176,7 @@ fn process_type<'a,'b>(
     let mut current_action: Action = Action::None;
     loop {
         let t = parse_type(remain); 
-    	println!("parse_type retuned {:#?}", t);
+    	debug!("parse_type retuned {:#?}", t);
         match t {
             Type::Template => match current_action {
                 Action::None => {
@@ -202,7 +209,7 @@ fn process_type<'a,'b>(
                     .expect("expected key=val")
                     .splitn(2, "=")
                     .collect::<Vec<_>>();
-                println!("split{:#?}", ss);
+                debug!("split{:#?}", ss);
                 assert!(ss.len() == 2, "expected key=val after v");
                 let (key, val) = (ss[0], ss[1]);
                 vars.insert(key, val);
@@ -260,8 +267,8 @@ fn test_process_type() {
     let mut task_vars: HashMap<&str, &str> = HashMap::new();
     let mut ri = remain.iter();
     let (action, next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
-    println!("action {:#?}", action);
-    println!("output_file_name {:#?}", vars.get("output_file_name"));
+    debug!("action {:#?}", action);
+    debug!("output_file_name {:#?}", vars.get("output_file_name"));
     match action { Action::Template => {}, _ => panic!("expected Template"), }
     do_action(Mode::Passive, &vars, &task_vars, Action::Template);
 }
@@ -279,18 +286,26 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut opts = Options::new();
     //opts.optopt("d", "dir", "project dir", "DIR");
+    opts.optflag("D", "debug", "debug logging");
     opts.optflag("i", "interactive", "ask before overwrite");
     opts.optflag("a", "active", "overwrite without asking");
     //opts.optflag("p", "prop", "system properties");
     opts.optflag("h", "help", "print this help menu");
     let matches = opts.parse(&args[1..]).unwrap();
+    //debug!("args {:#?}", matches);
+
     if matches.opt_present("h") {
         print_usage(&program, opts);
         return Ok(());
     }
+    if matches.opt_present("debug") {
+        simple_logger::init_with_level(Level::Trace).unwrap();
+    } else {
+        simple_logger::init_with_level(Level::Warn).unwrap();
+    }
     let mode = if matches.opt_present("interactive") {
 	Mode::Interactive
-    } else if matches.opt_present("action") {
+    } else if matches.opt_present("active") {
 	Mode::Active
     } else {
 	Mode::Passive
@@ -298,15 +313,15 @@ fn main() -> Result<(), std::io::Error> {
     let mut vars: HashMap<&str, &str> = HashMap::new();
 
     let remain = &mut matches.free.iter();
-    println!("remain {:#?}", remain);
+    //debug!("remain {:#?}", remain);
 
     {
         let mut task_vars: HashMap<&str, &str> = HashMap::new();
         let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
-        //println!("task_vars {:#?}", &task_vars);
-        //println!("vars {:#?}", &vars);
-        println!("action {:#?}", action);
-        println!("next_type {:#?}", next_type);
+        //debug!("task_vars {:#?}", &task_vars);
+        //debug!("vars {:#?}", &vars);
+        debug!("action {:#?}", action);
+        debug!("next_type {:#?}", next_type);
         //do_action(vars.as_mut(), &task_vars, action);
         do_action(mode, &vars, &task_vars, action)?;
     }
