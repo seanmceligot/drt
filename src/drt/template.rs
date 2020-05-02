@@ -3,7 +3,6 @@ use drt::diff::DiffStatus;
 use drt::fs::create_dir;
 use drt::userinput::ask;
 use drt::Mode;
-#[allow(dead_code)]
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
@@ -13,6 +12,7 @@ use std::io::BufReader;
 use std::io::Error;
 use std::path::PathBuf;
 use std::process::Command;
+use log::trace;
 
 #[derive(Debug)]
 pub struct TemplateFiles {
@@ -22,7 +22,6 @@ pub struct TemplateFiles {
 }
 
 impl TemplateFiles {
-#[allow(dead_code)]
     pub fn new(in_template: PathBuf, out_file: PathBuf) -> Option<TemplateFiles> {
         let gen = PathBuf::from("/tmp").join(PathBuf::from(out_file.file_name().unwrap()));
         Some(TemplateFiles {
@@ -33,19 +32,17 @@ impl TemplateFiles {
     }
 }
 
-#[allow(dead_code)]
 pub enum Generated<'r> {
     RText(&'r TemplateFiles),
     _RBinary(&'r TemplateFiles),
 }
 
 // creates the tmp file for comparing to the dest file
-#[allow(dead_code)]
 pub fn generate_recommended_file<'fs, 'f>(
     vars: &'fs HashMap<&str, &str>,
     files: &'f TemplateFiles,
 ) -> Result<Generated<'f>, Error> {
-    println!("open template {:?}", files.template);
+    trace!("open template {:?}", files.template);
     let infile: Result<File, Error> = File::open(&files.template);
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
     let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
@@ -64,10 +61,10 @@ pub fn generate_recommended_file<'fs, 'f>(
                 let t = cap.name("t").unwrap().as_str();
                 let k = cap.name("k").unwrap().as_str();
                 let v = vars.get(k);
-                println!("t {:?}", t);
-                println!("k {:?}", k);
-                println!("v {:?}", v);
-                println!("l {:?}", l);
+                trace!("template {:?}", t);
+                trace!("key {:?}", k);
+                trace!("val {:?}", v);
+                trace!("line {:?}", l);
 
                 if v.is_some() {
                     // change match to vars[k[
@@ -119,7 +116,7 @@ fn merge_active(_template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
     println!("with: {}", status);
     status.success()
 }
-fn merge_into_template(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
+fn merge_into_template(template: &PathBuf, _path: &PathBuf, path2: &PathBuf) -> bool {
     let status = Command::new("vim")
         .arg("-d")
         .arg(path2.as_os_str())
@@ -130,7 +127,7 @@ fn merge_into_template(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> b
     println!("with: {}", status);
     status.success()
 }
-fn merge_interactive(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
+fn merge_interactive(_template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> bool {
     let status = Command::new("vim")
         .arg("-d")
         .arg(path.as_os_str())
@@ -141,13 +138,12 @@ fn merge_interactive(template: &PathBuf, path: &PathBuf, path2: &PathBuf) -> boo
     println!("with: {}", status);
     status.success()
 }
-pub fn create_from<'f,'g>(
-    mode: Mode,
-    template: &'f PathBuf,
-    path: &'f PathBuf,
-    dest: &'f PathBuf,
-) -> Result<DiffStatus, Error> {
-    create_dir(dest.parent());
+pub fn create_from<'f,'g>( mode: Mode, template: &'f PathBuf, path: &'f PathBuf, dest: &'f PathBuf,) -> Result<DiffStatus, Error> {
+    trace!("dest {:?}", dest);
+    let dir = dest.parent();
+    trace!("dest dir {:?}", dir);
+    create_dir(dir);
+    trace!("create_from");
     let status = diff(&path, &dest);
     match status {
         DiffStatus::NoChanges => {
@@ -161,12 +157,16 @@ pub fn create_from<'f,'g>(
         DiffStatus::NewFile => {
             println!("create '{}'", dest.display());
             println!("cp {:?} {:?}", path, dest);
-            std::fs::copy(path, dest).expect("create_from: copy failed:");
+            match mode {
+                Mode::Passive =>  copy_passive(path, dest)?,
+                Mode::Active => copy_active(path, dest)?,
+                Mode::Interactive => copy_interactive(path, dest)?
+            };
             Ok(DiffStatus::NewFile)
         }
         DiffStatus::Changed(difftext) => {
             let ans = match mode {
-                Mode::Passive => 'p',
+                Mode::Passive => 'd',
                 Mode::Active => 'c',
                 Mode::Interactive => ask(
                     &format!( "{}: {} {} (c)opy (m)erge (s)kip print (d)iff merge to (t)emplate", "files don't match", 
@@ -201,5 +201,30 @@ pub fn create_from<'f,'g>(
             }
             Ok(diff(&path, &dest))
         }
+    }
+}
+fn copy_passive(path: &PathBuf, path2: &PathBuf) -> Result<(), Error> {
+    println!("WOULD: cp {:?} {:?}", path, path2 );
+    // TODO: check if we can write to path2
+    Ok(())
+}
+fn copy_active(path: &PathBuf, path2: &PathBuf) -> Result<(), Error> {
+    println!("cp {:?} {:?}", path, path2 );
+    std::fs::copy(path, path2).expect("create_from: copy failed:");
+    Ok(())
+}
+fn copy_interactive(path: &PathBuf, path2: &PathBuf) -> Result<(), Error> {
+    let status = Command::new("cp")
+        .arg("-i")
+        .arg(path.as_os_str())
+        .arg(path2.as_os_str())
+        .status()
+        .expect("failed to execute process");
+
+    println!("with: {}", status);
+    if status.success() {
+        Ok(())
+    } else {
+        panic!("cp failed: {:?} -> {:?}", path, path2)
     }
 }
