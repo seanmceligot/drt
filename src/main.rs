@@ -15,78 +15,31 @@ mod drt;
 use drt::diff::diff;
 use drt::diff::DiffStatus;
 use drt::Mode;
-use drt::template::{create_from, generate_recommended_file, Generated, TemplateFiles};
+use drt::SrcFile;
+use drt::DestFile;
+use drt::GenFile;
+use drt::template::{create_from, generate_recommended_file};
 use std::io::Error;
 use std::slice::Iter;
 //use std::collections::hash_map::Iter as HashIter;
 //use log::{info, trace, warn};
 use log::Level;
 
-#[derive(Debug)]
-enum Sink<'r> {
-    SyncBinaryFile(&'r TemplateFiles),
-    SyncTextFile(&'r TemplateFiles),
-    SyncNewFile(&'r TemplateFiles),
-}
-
-fn _report(sink: Sink) {
-    match sink {
-        Sink::SyncNewFile(files) => {
-            debug!("new file: {:?}", files.dest);
-        }
-        Sink::SyncTextFile(files) => {
-            debug!("report SyncTextFile: diff");
-            diff(&files.gen, &files.dest);
-        }
-        Sink::SyncBinaryFile(files) => {
-            debug!("binary {:?}", files.dest);
-            if !files.dest.exists() {
-                debug!("new binary: {}", files.dest.display());
-            } else {
-                debug!("report SyncBinaryFile: diff");
-                diff(&files.gen, &files.dest);
-            }
-        }
-    }
-}
-fn create_or_diff(mode: Mode, sink: Sink) -> Result<DiffStatus, Error> {
-    match sink {
-        Sink::SyncNewFile(files) => create_from(mode, &files.template, &files.gen, &files.dest),
-        Sink::SyncTextFile(files) => {
+fn create_or_diff
+    (mode: Mode, 
+    template: & SrcFile,
+    dest: & DestFile,
+    gen: & GenFile
+) -> Result<DiffStatus, Error> {
+    if dest.exists() {
             debug!("create_or_diff: diff");
-            diff(&files.gen, &files.dest);
-            create_from(mode, &files.template, &files.gen, &files.dest)
-        }
-        Sink::SyncBinaryFile(files) => {
-            if !files.dest.exists() {
-                create_from(mode, &files.template, &files.gen, &files.dest)
-            } else {
-                create_from(mode, &files.template, &files.gen, &files.dest)
-            }
-        }
+            diff(gen.path(), dest.path());
+            create_from(mode, template, gen, dest)
+    } else {
+        create_from(mode, template, gen, dest)
     }
 }
 //fn get_x<'r>(p: &'r Point) -> &'r f64 { &p.x }
-fn generated_to_sink<'t>(generated: Generated<'t>) -> Result<Sink<'t>, Error> {
-    match generated {
-        Generated::RText(files) => {
-            let exists = files.dest.exists();
-            if exists {
-                return Ok(Sink::SyncTextFile(files));
-            } else {
-                return Ok(Sink::SyncNewFile(files));
-            }
-        }
-        Generated::_RBinary(files) => {
-            let exists = files.dest.exists();
-            if exists {
-                return Ok(Sink::SyncBinaryFile(files));
-            } else {
-                return Ok(Sink::SyncNewFile(files));
-            }
-        }
-    }
-}
 fn _process_dir(pattern: &str) -> Vec<PathBuf> {
     let mut vec = Vec::new();
     debug!("glob {}", pattern);
@@ -154,11 +107,11 @@ fn parse_type(inputs: &mut Iter<String>) -> Type {
 fn process_template_file<'t>(
     mode: Mode,
     vars: &'t HashMap<&'_ str, &'_ str>,
-    template_file: TemplateFiles,
+    template: & SrcFile,
+    dest: & DestFile
 ) -> Result<DiffStatus, Error> {
-    let gen = generate_recommended_file(vars, &template_file)?;
-    let sink = generated_to_sink(gen)?;
-    create_or_diff(mode, sink)
+    let gen = generate_recommended_file(vars, template)?;
+    create_or_diff(mode, template, dest, &gen)
 }
 
 ///
@@ -194,7 +147,7 @@ fn process_type<'a,'b>(
             Type::OutputFile => {
                 let output_file_name = remain
                     .next()
-                    .expect("of output_file_name: output_file_name required argument");
+                    .expect("of required (output file name)");
                 task_vars.insert("output_file_name", output_file_name);
             }
             Type::InputFile => {
@@ -234,14 +187,13 @@ fn do_action<'g>(
             let template_file_name = task_vars
                 .get("template_file_name")
                 .expect("template_file_name required");
-            let template_file = PathBuf::from(template_file_name);
+            let template_file = SrcFile::new(PathBuf::from(template_file_name));
             let output_file_name = task_vars
                 .get("output_file_name")
                 .expect("output_file_name required");
-            let output_file = PathBuf::from(output_file_name);
+            let output_file = DestFile::new(PathBuf::from(output_file_name));
 
-            let files = TemplateFiles::new(template_file, output_file).unwrap();
-            process_template_file(mode, &vars, files)?;
+            process_template_file(mode, &vars, &template_file, &output_file)?;
             Ok(())
         }
         Action::None => {
@@ -251,7 +203,8 @@ fn do_action<'g>(
 }
 
 #[test]
-fn test_process_type() {
+fn test_process_type() -> Result<(), Error> {
+
     let mut vars: HashMap<&str, &str> = HashMap::new();
     let remain = vec![
 	String::from("v"), 
@@ -266,11 +219,11 @@ fn test_process_type() {
 	String::from("project/my.config")];
     let mut task_vars: HashMap<&str, &str> = HashMap::new();
     let mut ri = remain.iter();
-    let (action, next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
+    let (action, _next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
     debug!("action {:#?}", action);
     debug!("output_file_name {:#?}", vars.get("output_file_name"));
     match action { Action::Template => {}, _ => panic!("expected Template"), }
-    do_action(Mode::Passive, &vars, &task_vars, Action::Template);
+    do_action(Mode::Passive, &vars, &task_vars, Action::Template)
 }
 //#[test]
 //fn test_do_action() {

@@ -4,6 +4,9 @@ default: test
 test: 
 	RUST_BACKTRACE=1 cargo test
 
+lint:
+	cargo clippy
+
 format: 
 	cargo fmt
 
@@ -16,7 +19,7 @@ build:
 
 noargs: 
 	echo cp out1/myconfig project/myconfig
-	RUST_BACKTRACE=1 cargo run --bin drt --debug
+	RUST_BACKTRACE=1 cargo run --bin drt -- --debug
 
 rund: 
 	echo cp out1/myconfig project/myconfig
@@ -38,4 +41,4 @@ clean:
 	rm -rvf out
 
 update:
-	cargo update --aggressive
+	cargo build

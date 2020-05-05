@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 use std::vec::IntoIter;
 use log::debug;
@@ -16,7 +16,7 @@ pub enum DiffStatus {
     Failed,
 }
 
-pub fn diff<'f,'g>(path: &'f PathBuf, path2: &'f PathBuf) -> DiffStatus {
+pub fn diff<'f,'g>(path: &'f Path, path2: &'f Path) -> DiffStatus {
     debug!("diff {} {}", path.display(), path2.display());
     if !path2.exists() {
         DiffStatus::NewFile
