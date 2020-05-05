@@ -26,7 +26,7 @@ pub fn generate_recommended_file<'a, 'b>(
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
     let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
     let reader = BufReader::new(infile.unwrap());
-    let mut tmpfile: File = gen.open()?;
+    let mut tmpfile: &File = gen.open();
     for line in reader.lines() {
         let l: String = line.unwrap();
         match re.captures(l.as_str()) {
@@ -46,7 +46,7 @@ pub fn generate_recommended_file<'a, 'b>(
 
                 if v.is_some() {
                     let value: &str = v.unwrap();
-                    write!(tmpfile, "{}", value);
+                    write!(tmpfile, "{}", value).expect("write failed");
                 } else {
                     // found varable but no key in vars so leave line alone
                     panic!("warn: NOT FOUND {}", key);

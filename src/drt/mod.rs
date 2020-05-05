@@ -1,3 +1,4 @@
+extern crate tempfile;
 pub mod diff;
 pub mod fs;
 pub mod parse;
@@ -61,23 +62,17 @@ impl DestFile {
 }
 #[derive(Debug)]
 pub struct GenFile {
-    path: PathBuf,
+    file: tempfile::NamedTempFile,
 }
 impl GenFile {
     pub fn new() -> GenFile {
-        let path_file = PathBuf::from("temp.patherated");
-        GenFile { path: path_file }
+        GenFile { file: tempfile::NamedTempFile::new().unwrap()}
     }
-    pub fn open(&self) -> Result<File, Error> {
-        trace!("open path {:?}", self.path);
-        OpenOptions::new()
-        .read(false)
-        .write(true)
-        .create(true)
-        .open(&self.path)
+    pub fn open(&self) -> & File {
+        self.file.as_file()
     }
     pub fn path(&self) -> & Path {
-        self.path.as_path()
+        self.file.path()
     }
 }
 
@@ -95,7 +90,7 @@ impl fmt::Display for DestFile {
 
 impl fmt::Display for GenFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.path.display())
+        write!(f, "{}", self.path().display())
     }
 }
 impl AsRef<OsStr> for DestFile {
@@ -110,6 +105,6 @@ impl AsRef<OsStr> for SrcFile {
 }
 impl AsRef<OsStr> for GenFile {
     fn as_ref(&self) -> &OsStr {
-        self.path.as_os_str()
+        self.path().as_os_str()
     }
 }

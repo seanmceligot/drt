@@ -4,6 +4,7 @@ extern crate simple_logger;
 extern crate getopts;
 extern crate glob;
 extern crate regex;
+extern crate tempfile;
 
 use self::glob::glob;
 use getopts::Options;
