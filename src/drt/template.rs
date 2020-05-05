@@ -5,6 +5,7 @@ use drt::Mode;
 use drt::SrcFile;
 use drt::GenFile;
 use regex::Regex;
+use regex::Match;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -25,34 +26,37 @@ pub fn generate_recommended_file<'a, 'b>(
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
     let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
     let reader = BufReader::new(infile.unwrap());
-    let mut tmpfile = gen.open()?;
+    let mut tmpfile: File = gen.open()?;
     for line in reader.lines() {
-        let l = line.unwrap();
+        let l: String = line.unwrap();
         match re.captures(l.as_str()) {
             Some(cap) => {
-                let t = cap.name("t").unwrap().as_str();
-                let k = cap.name("k").unwrap().as_str();
-                let v = vars.get(k);
+                let all: Match = cap.get(0).unwrap();
+                let t: Match = cap.name("t").unwrap();
+                let k: Match = cap.name("k").unwrap();
+                let before: &str = &l[..all.start()];
+                trace!("before {:?}", before);
+                write!(tmpfile, "{}", before).expect("write failed");
+                let key = k.as_str();
+                let v = vars.get(key);
                 trace!("template {:?}", t);
-                trace!("key {:?}", k);
+                trace!("key {}", key);
                 trace!("val {:?}", v);
                 trace!("line {:?}", l);
 
                 if v.is_some() {
-                    // change match to vars[k[
                     let value: &str = v.unwrap();
-                    //let value: &str = "VALUE";
-                    // replace line: |@@key@@| with line |value|
-                    writeln!(tmpfile, "{}", re.replace(l.as_str(), value))
-                        .expect("Cannot Write to tmp file")
+                    write!(tmpfile, "{}", value);
                 } else {
                     // found varable but no key in vars so leave line alone
-                    panic!("warn: NOT FOUND {}", k);
-                    //writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
+                    panic!("warn: NOT FOUND {}", key);
                 };
+                let after: &str = &l[all.end()..];
+                trace!("after {:?}", after);
+                writeln!(tmpfile, "{}", after).expect("write failed");
             }
             None => {
-                // no variable in line
+                trace!("no vars in line {:?}", l);
                 writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
             }
         }
