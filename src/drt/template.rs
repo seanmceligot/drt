@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::process::Command;
 use log::trace;
 use drt::DestFile;
@@ -47,13 +48,12 @@ pub fn generate_recommended_file<'a, 'b>(
                 if v.is_some() {
                     let value: &str = v.unwrap();
                     write!(tmpfile, "{}", value).expect("write failed");
+                    let after: &str = &l[all.end()..];
+                    trace!("after {:?}", after);
+                    writeln!(tmpfile, "{}", after).expect("write failed");
                 } else {
-                    // found varable but no key in vars so leave line alone
-                    panic!("warn: NOT FOUND {}", key);
+                    return Err(Error::new(ErrorKind::Other, format!("warn: NOT FOUND {}", key)))
                 };
-                let after: &str = &l[all.end()..];
-                trace!("after {:?}", after);
-                writeln!(tmpfile, "{}", after).expect("write failed");
             }
             None => {
                 trace!("no vars in line {:?}", l);
