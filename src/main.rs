@@ -221,8 +221,16 @@ fn test_process_type() -> Result<(), Error> {
     let mut task_vars: HashMap<&str, &str> = HashMap::new();
     let mut ri = remain.iter();
     let (action, _next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
-    debug!("action {:#?}", action);
-    debug!("output_file_name {:#?}", vars.get("output_file_name"));
+    let output_file_name: &str = task_vars.get("output_file_name").unwrap();
+    assert_eq!( output_file_name, "out1/my.config");
+    let template_file_name: &str = task_vars.get("template_file_name").unwrap();
+    assert_eq!( template_file_name, "project/my.config");
+    let var_test: &str = vars.get("test").unwrap();
+    assert_eq!( var_test, "1");
+    let var_user: &str = vars.get("user").unwrap();
+    assert_eq!( var_user, "myuser");
+    let var_base_dir: &str = vars.get("base.dir").unwrap();
+    assert_eq!( var_base_dir, "mybase");
     match action { Action::Template => {}, _ => panic!("expected Template"), }
     do_action(Mode::Passive, &vars, &task_vars, Action::Template)
 }
@@ -277,7 +285,10 @@ fn main() -> Result<(), std::io::Error> {
         debug!("action {:#?}", action);
         debug!("next_type {:#?}", next_type);
         //do_action(vars.as_mut(), &task_vars, action);
-        do_action(mode, &vars, &task_vars, action)?;
+        match do_action(mode, &vars, &task_vars, action) {
+            Ok(_) =>  {}
+            Err(e) => println!("{}", e)
+        }
     }
     Ok(())
 }
