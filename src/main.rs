@@ -21,6 +21,7 @@ use drt::DestFile;
 use drt::GenFile;
 use drt::template::{create_from, generate_recommended_file};
 use std::io::Error;
+use std::io::ErrorKind;
 use std::slice::Iter;
 //use std::collections::hash_map::Iter as HashIter;
 //use log::{info, trace, warn};
@@ -65,11 +66,13 @@ fn print_usage(program: &str, opts: Options) {
 #[derive(Debug)]
 enum Action {
     Template,
+    Execute,
     None,
 }
 #[derive(Debug)]
 enum Type {
     Template,
+    Execute,
     InputFile,
     OutputFile,
     Variable,
@@ -83,25 +86,21 @@ fn _drain_to(mut input: String, ch: char) -> String {
 }
 #[test]
 fn test_parse_type() {
-    match parse_type(&mut vec![String::from("t")].iter()) { Type::Template => {}, _ => panic!("expected Template"), }
-    match parse_type(&mut vec![String::from("of")].iter()) { Type::OutputFile => {}, _ => panic!("expected Template"), }
-    match parse_type(&mut vec![String::from("if")].iter()) { Type::InputFile => {}, _ => panic!("expected Template"), }
-    match parse_type(&mut vec![String::from("v")].iter()) { Type::Variable => {}, _ => panic!("expected Template"), }
+    match parse_type(&String::from("t")) { Type::Template => {}, _ => panic!("expected Template"), }
+    match parse_type(&String::from("of")) { Type::OutputFile => {}, _ => panic!("expected Template"), }
+    match parse_type(&String::from("if")) { Type::InputFile => {}, _ => panic!("expected Template"), }
+    match parse_type(&String::from("v")) { Type::Variable => {}, _ => panic!("expected Template"), }
 }
 
 //|| input i:n=1 s:name=sean t:myconfig:project/my.config
 //|| input of:f:mkdir,out1/my.config
-fn parse_type(inputs: &mut Iter<String>) -> Type {
-    let maybe_input = inputs.next();
-    match maybe_input {
-        None => Type::End,
-        Some(input) => match input.as_str() {
-            "t" => Type::Template,
-            "of" => Type::OutputFile,
-            "if" => Type::InputFile,
-            "v" => Type::Variable,
-            _ => { debug!("Unknown {}", input); Type::Unknown},
-        },
+fn parse_type(input: &String) -> Type {
+    match input.as_str() {
+        "t" => Type::Template,
+        "of" => Type::OutputFile,
+        "if" => Type::InputFile,
+        "v" => Type::Variable,
+        _ => { debug!("Unknown {}", input); Type::Unknown},
     }
 }
 // v n=1 v y=hello of out1/my.config t project/my.config
@@ -115,6 +114,7 @@ fn process_template_file<'t>(
     create_or_diff(mode, template, dest, &gen)
 }
 
+
 ///
 /// # Example
 ///
@@ -125,58 +125,60 @@ fn process_template_file<'t>(
 fn process_type<'a,'b>(
     vars:      &'b mut HashMap<&'a str, &'a str>,
     task_vars: &'b mut HashMap<&'a str, &'a str>,
-    remain:    &'a mut Iter   <'a, String>,
-) -> Result<(Action, Action), Error> {
-    let mut current_action: Action = Action::None;
-    loop {
-        let t = parse_type(remain); 
-    	debug!("parse_type retuned {:#?}", t);
-        match t {
-            Type::Template => match current_action {
-                Action::None => {
-                    let template_file_name = remain
-                        .next()
-                        .expect("t template_file_name: template_file_name required argument");
-                    task_vars.insert("template_file_name", template_file_name);
-                    current_action = Action::Template;
-                }
-                _ => {
-                    // we reached the second action. return the current_action and process this later
-                    return Ok((current_action, Action::Template));
-                }
-            },
-            Type::OutputFile => {
-                let output_file_name = remain
-                    .next()
-                    .expect("of required (output file name)");
-                task_vars.insert("output_file_name", output_file_name);
-            }
-            Type::InputFile => {
-                let in_file_name = remain
-                    .next()
-                    .expect("of in_file_name: in_file_name required argument");
-                task_vars.insert("in_file_name", in_file_name);
-            }
-            Type::Variable => {
-                let ss = remain
-                    .next()
-                    .expect("expected key=val")
-                    .splitn(2, "=")
-                    .collect::<Vec<_>>();
-                debug!("split{:#?}", ss);
-                assert!(ss.len() == 2, "expected key=val after v");
-                let (key, val) = (ss[0], ss[1]);
-                vars.insert(key, val);
-            }
-            Type::Unknown => {
-                return Ok((current_action, Action::None));
-            }
-            Type::End => {
-                return Ok((current_action, Action::None));
-            }
+    t: Type,
+    next: Option<&'a String>) 
+    -> Result<(
+        Action,
+        &'b mut HashMap<&'a str, &'a str>,
+        &'b mut HashMap<&'a str, &'a str> )
+        , Error> {
+    match t {
+        Type::Template => {
+                let template_file_name = next.expect("t template_file_name: template_file_name required argument");
+                task_vars.insert("template_file_name", template_file_name);
+                return Ok((Action::Template, vars, task_vars));
+        },
+        Type::Execute => {
+            let cmd= next.expect("of required cmd");
+            task_vars.insert("cmd", cmd);
+            return Ok((Action::Execute, vars, task_vars));
+        }
+        Type::OutputFile => {
+            let output_file_name = next.expect("of required (output file name)");
+            task_vars.insert("output_file_name", output_file_name);
+            return Ok((Action::None, vars, task_vars));
+        }
+        Type::InputFile => {
+            let in_file_name = next.expect("of in_file_name: in_file_name required argument");
+            task_vars.insert("in_file_name", in_file_name);
+            return Ok((Action::None, vars, task_vars));
+        }
+        Type::Variable => {
+            let ss = next.expect("expected key=val")
+                .splitn(2, "=")
+                .collect::<Vec<_>>();
+            debug!("split{:#?}", ss);
+            assert!(ss.len() == 2, "expected key=val after v");
+            let (key, val) = (ss[0], ss[1]);
+            vars.insert(key, val);
+            return Ok((Action::None, vars, task_vars));
+        }
+        Type::Unknown => {
+            return Err(Error::new(ErrorKind::Other, "Type::Unknown"));
+        }
+        Type::End => {
+            return Ok((Action::None, vars, task_vars));
         }
     }
 }
+//fn execute<'g>(
+//    mode: Mode,
+//    vars: &'g HashMap<&'g str, &'g str>,
+//    task_vars: &'g HashMap<&'g str, &'g str>,
+//    remain: &'g Iter<&'g str>,
+//) -> Result<(), Error> {
+//    Ok(())
+//}
 fn do_action<'g>(
     mode: Mode,
     vars: &'g HashMap<&'g str, &'g str>,
@@ -196,52 +198,103 @@ fn do_action<'g>(
 
             process_template_file(mode, &vars, &template_file, &output_file)?;
             Ok(())
-        }
+        },
+        Action::Execute => {
+            //execute(mode, &vars, &task_vars, remain)?;
+            Ok(())
+        },
         Action::None => {
             Ok(())
         }
     }
 }
 
-#[test]
-fn test_process_type() -> Result<(), Error> {
-
-    let mut vars: HashMap<&str, &str> = HashMap::new();
-    let remain = vec![
-	String::from("v"), 
-	String::from("test=1"), 
-	String::from("v"), 
-	String::from("user=myuser"), 
-	String::from("v"), 
-	String::from("base.dir=mybase"), 
-	String::from("of"),
-	String::from("out1/my.config"),
-	String::from("t"), 
-	String::from("project/my.config")];
-    let mut task_vars: HashMap<&str, &str> = HashMap::new();
-    let mut ri = remain.iter();
-    let (action, _next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
-    let output_file_name: &str = task_vars.get("output_file_name").unwrap();
-    assert_eq!( output_file_name, "out1/my.config");
-    let template_file_name: &str = task_vars.get("template_file_name").unwrap();
-    assert_eq!( template_file_name, "project/my.config");
-    let var_test: &str = vars.get("test").unwrap();
-    assert_eq!( var_test, "1");
-    let var_user: &str = vars.get("user").unwrap();
-    assert_eq!( var_user, "myuser");
-    let var_base_dir: &str = vars.get("base.dir").unwrap();
-    assert_eq!( var_base_dir, "mybase");
-    match action { Action::Template => {}, _ => panic!("expected Template"), }
-    do_action(Mode::Passive, &vars, &task_vars, Action::Template)
-}
 //#[test]
-//fn test_do_action() {
+//fn test_exec() -> Result<(), Error> {
+//
 //    let mut vars: HashMap<&str, &str> = HashMap::new();
+//    let _remain = vec![
+//	String::from("x"), 
+//	String::from("ls"),
+//	String::from("-l"),
+//	String::from("Makefile")];
+//    let remain = vec![
+//	"x", 
+//	"ls",
+//	"-l",
+//	"Makefile"];
 //    let mut task_vars: HashMap<&str, &str> = HashMap::new();
-//    task_vars.insert("template_file_name", "project/my.config");
-//    task_vars.insert("output_file_name", "out.config");
-//    do_action(Mode::Passive, &vars, &task_vars, Action::Template);
+//    let mut ri = remain.iter();
+//    let (action, _next_type) = process_type(&mut vars, &mut task_vars, &mut ri).expect("process_type failed");
+//    let output_file_name: &str = task_vars.get("output_file_name").unwrap();
+//    assert_eq!( output_file_name, "out1/my.config");
+//    let template_file_name: &str = task_vars.get("template_file_name").unwrap();
+//    assert_eq!( template_file_name, "project/my.config");
+//    let var_test: &str = vars.get("test").unwrap();
+//    assert_eq!( var_test, "1");
+//    let var_user: &str = vars.get("user").unwrap();
+//    assert_eq!( var_user, "myuser");
+//    let var_base_dir: &str = vars.get("base.dir").unwrap();
+//    assert_eq!( var_base_dir, "mybase");
+//    match action { Action::Template => {}, _ => panic!("expected Template"), }
+//    do_action(Mode::Passive, &vars, &task_vars, &mut ri, Action::Template)
 //}
+////#[test]
+////fn test_process_type() -> Result<(), Error> {
+////    let mut vars: HashMap<&str, &str> = HashMap::new();
+////    let remain = vec![
+////	&"v", 
+////	&"test=1", 
+////	&"v", 
+////	&"user=myuser", 
+////	&"v", 
+////	&"base.dir=mybase", 
+////	&"of",
+////	&"out1/my.config",
+////	&"t", 
+////	&"project/my.config"];
+////    let remain_string = vec![
+////	String::from("v"), 
+////	String::from("test=1"), 
+////	String::from("v"), 
+////	String::from("user=myuser"), 
+////	String::from("v"), 
+////	String::from("base.dir=mybase"), 
+////	String::from("of"),
+////	String::from("out1/my.config"),
+////	String::from("t"), 
+////	String::from("project/my.config")];
+////    let mut task_vars: HashMap<&str, &str> = HashMap::new();
+////    let ri = remain.iter();
+////    let mut ri_string = remain_string.iter();
+////    let (action, _next_type) = process_type(&mut vars, &mut task_vars, ri).expect("process_type failed");
+////    let output_file_name: &str = task_vars.get("output_file_name").unwrap();
+////    assert_eq!( output_file_name, "out1/my.config");
+////    let template_file_name: &str = task_vars.get("template_file_name").unwrap();
+////    assert_eq!( template_file_name, "project/my.config");
+////    let var_test: &str = vars.get("test").unwrap();
+////    assert_eq!( var_test, "1");
+////    let var_user: &str = vars.get("user").unwrap();
+////    assert_eq!( var_user, "myuser");
+////    let var_base_dir: &str = vars.get("base.dir").unwrap();
+////    assert_eq!( var_base_dir, "mybase");
+////    match action { Action::Template => {}, _ => panic!("expected Template"), }
+////    do_action(Mode::Passive, &vars, &task_vars, &mut ri, Action::Template)
+////}
+#[test]
+fn test_do_action() {
+    let mut vars: HashMap<&str, &str> = HashMap::new();
+    let mut task_vars: HashMap<&str, &str> = HashMap::new();
+    vars.insert("base.dir", "/foo/bar");
+    vars.insert("test", "I_AM_TEST");
+    vars.insert("user", "I_AM_USER");
+    task_vars.insert("template_file_name", "project/my.config");
+    task_vars.insert("output_file_name", "out.config");
+    match do_action(Mode::Passive, &vars, &task_vars, Action::Template) {
+        Ok(_) =>  {}
+        Err(e) => panic!("{}", e)
+    }
+}
 fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -266,28 +319,28 @@ fn main() -> Result<(), std::io::Error> {
         simple_logger::init_with_level(Level::Warn).unwrap();
     }
     let mode = if matches.opt_present("interactive") {
-	Mode::Interactive
+        Mode::Interactive
     } else if matches.opt_present("active") {
-	Mode::Active
+        Mode::Active
     } else {
-	Mode::Passive
+        Mode::Passive
     };
     let mut vars: HashMap<&str, &str> = HashMap::new();
-
-    let remain = &mut matches.free.iter();
-    //debug!("remain {:#?}", remain);
-
     {
         let mut task_vars: HashMap<&str, &str> = HashMap::new();
-        let (action, next_type) = process_type(&mut vars, &mut task_vars, remain)?;
-        //debug!("task_vars {:#?}", &task_vars);
-        //debug!("vars {:#?}", &vars);
-        debug!("action {:#?}", action);
-        debug!("next_type {:#?}", next_type);
-        //do_action(vars.as_mut(), &task_vars, action);
-        match do_action(mode, &vars, &task_vars, action) {
-            Ok(_) =>  {}
-            Err(e) => println!("{}", e)
+        let mut input_list:Iter<String>= matches.free.iter(); 
+        while let Some(input) =  input_list.next() {
+            let t:Type = parse_type(input);
+            let next:Option<&String> = input_list.next();
+            let (action, vars, task_vars) = process_type(&mut vars, &mut task_vars, t, next)?;
+            //debug!("task_vars {:#?}", &task_vars);
+            //debug!("vars {:#?}", &vars);
+            debug!("action {:#?}", action);
+            //do_action(vars.as_mut(), &task_vars, action);
+            match do_action(mode, &vars, &task_vars, action) {
+                Ok(_) =>  {}
+                Err(e) => println!("{}", e)
+            }
         }
     }
     Ok(())

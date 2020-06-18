@@ -52,7 +52,7 @@ pub fn generate_recommended_file<'a, 'b>(
                     trace!("after {:?}", after);
                     writeln!(tmpfile, "{}", after).expect("write failed");
                 } else {
-                    return Err(Error::new(ErrorKind::Other, format!("warn: NOT FOUND {}", key)))
+                    return Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {} from template {}", key, template)))
                 };
             }
             None => {
