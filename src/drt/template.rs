@@ -15,7 +15,39 @@ use std::io::ErrorKind;
 use std::process::Command;
 use log::trace;
 use drt::DestFile;
+use std::ops::Range;
+use log::debug;
 
+#[test]
+fn test_regex() {
+    match match_line(String::from("a@@foo@@").as_str()) { 
+        Some(("foo",_)) => {}, 
+        Some((_,_)) => panic!("fail"), 
+        None => panic!("expected Template") 
+    }
+    match match_line(String::from("@@foo@@a").as_str()) { 
+        Some(("foo",_)) => {}, 
+        Some((_,_)) => panic!("fail"), 
+        None => panic!("expected Template") 
+    }
+    match match_line(String::from("@@foo@@").as_str()) { 
+        Some(("foo",_)) => {}, 
+        Some((_,_)) => panic!("fail"), 
+        None => panic!("expected Template") 
+    }
+}
+fn match_line<'a>(line: &'a str) -> Option<(&'a str,Range<usize>)> {
+    let re = Regex::new(r"@@(?P<k>[A-Za-z0-9_\.-]*)@@").unwrap();
+    match re.captures(line) {
+        Some(cap) => {
+            let all: Match = cap.get(0).unwrap();
+            let k: Match = cap.name("k").unwrap();
+            let key = k.as_str();
+            return Some( (key, all.range()) )
+        }
+        None => None
+    }
+}
 // creates the tmp file for comparing to the dest file
 pub fn generate_recommended_file<'a, 'b>(
     vars: &'a HashMap<&str, &str>,
@@ -25,42 +57,34 @@ pub fn generate_recommended_file<'a, 'b>(
 
     let infile: Result<File, Error> = template.open();
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
-    let re = Regex::new(r"@@(?P<t>[fns]):(?P<k>[A-Za-z0-9\.-]*)@@").unwrap();
     let reader = BufReader::new(infile.unwrap());
     let mut tmpfile: &File = gen.open();
-    for line in reader.lines() {
-        let l: String = line.unwrap();
-        match re.captures(l.as_str()) {
-            Some(cap) => {
-                let all: Match = cap.get(0).unwrap();
-                let t: Match = cap.name("t").unwrap();
-                let k: Match = cap.name("k").unwrap();
-                let before: &str = &l[..all.start()];
-                trace!("before {:?}", before);
-                write!(tmpfile, "{}", before).expect("write failed");
-                let key = k.as_str();
+    for maybe_line in reader.lines() {
+        let line: String = maybe_line.unwrap();
+        match match_line(line.as_str()) {
+            Some((key,range)) => {
                 let v = vars.get(key);
-                trace!("template {:?}", t);
                 trace!("key {}", key);
                 trace!("val {:?}", v);
-                trace!("line {:?}", l);
+                trace!("line {:?}", line);
+                let before: &str = &line[..range.start];
+                let after: &str = &line[range.end..];
+                write!(tmpfile, "{}", before).expect("write failed");
 
                 if v.is_some() {
                     let value: &str = v.unwrap();
                     write!(tmpfile, "{}", value).expect("write failed");
-                    let after: &str = &l[all.end()..];
-                    trace!("after {:?}", after);
                     writeln!(tmpfile, "{}", after).expect("write failed");
                 } else {
                     return Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {} from template {}", key, template)))
                 };
-            }
+            },
             None => {
-                trace!("no vars in line {:?}", l);
-                writeln!(tmpfile, "{}", l).expect("Cannot write to tmp file");
+                    trace!("no vars in line {:?}", line);
+                    writeln!(tmpfile, "{}", line).expect("Cannot write to tmp file");
             }
         }
-    }
+    }  
     return Ok(gen);
 }
 
@@ -121,16 +145,16 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
-            println!("no changes '{}'", dest);
+            debug!("no changes '{}'", dest);
             Ok(DiffStatus::NoChanges)
         }
         DiffStatus::Failed => {
-            println!("diff failed '{}'", dest);
+            debug!("diff failed '{}'", dest);
             Ok(DiffStatus::Failed)
         }
         DiffStatus::NewFile => {
-            println!("create '{}'", dest);
-            println!("cp {:?} {:?}", gen, dest);
+            debug!("create '{}'", dest);
+            debug!("cp {:?} {:?}", gen, dest);
             match mode {
                 Mode::Passive =>  copy_passive(gen, dest)?,
                 Mode::Active => copy_active(gen, dest)?,
@@ -143,7 +167,7 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
                 Mode::Passive => 'd',
                 Mode::Active => 'c',
                 Mode::Interactive => ask(
-                    &format!( "{}: {} {} (c)opy (m)erge (s)kip print (d)iff merge to (t)emplate", "files don't match", 
+                    &format!( "{}: {} {} (c)opy (m)erge s(k)ip print (d)iff merge to (t)emplate", "files don't match", 
                         gen, 
                         dest))
             };
@@ -153,7 +177,7 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
                         print!("{}", ch as char)
                     }
                 }
-                's' => {
+                'k' => {
                     println!("skipping cp {} {}", gen, dest);
                 }
                 't' => {
@@ -177,13 +201,13 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
         }
     }
 }
-fn copy_passive(path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("WOULD: cp {:?} {:?}", path, path2 );
+fn copy_passive(_path: &GenFile, path2: &DestFile) -> Result<(), Error> {
+    println!("WOULD: create {}", path2 );
     // TODO: check if we can write to path2
     Ok(())
 }
 fn copy_active(path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("cp {:?} {:?}", path, path2 );
+    println!("LIVE: create {}", path2 );
     std::fs::copy(path.path(), path2.path()).expect("create_from: copy failed:");
     Ok(())
 }
