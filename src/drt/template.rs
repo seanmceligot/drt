@@ -48,6 +48,36 @@ fn match_line<'a>(line: &'a str) -> Option<(&'a str,Range<usize>)> {
         None => None
     }
 }
+pub fn replace_line( 
+    vars: & HashMap<&str, &str>,
+    line: String) -> Result<Option<String>,Error> { 
+    match match_line(line.as_str()) {
+        Some((key,range)) => {
+            let mut new_line: String = String::new();
+            let v = vars.get(key);
+            trace!("key {}", key);
+            trace!("val {:?}", v);
+            trace!("line {:?}", line);
+            let before: &str = &line[..range.start];
+            let after: &str = &line[range.end..];
+            new_line.push_str(before);
+            //write!(tmpfile, "{}", before).expect("write failed");
+
+            if v.is_some() {
+                let value: &str = v.unwrap();
+                new_line.push_str(value);
+                new_line.push_str(after);
+                new_line.push('\n');
+                //write!(tmpfile, "{}", value).expect("write failed");
+                //writeln!(tmpfile, "{}", after).expect("write failed");
+                return Ok(Some(new_line))
+            } else {
+                return Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {}", key)))
+            };
+        },
+        None => return Ok(None)
+    }
+}
 // creates the tmp file for comparing to the dest file
 pub fn generate_recommended_file<'a, 'b>(
     vars: &'a HashMap<&str, &str>,
@@ -61,30 +91,23 @@ pub fn generate_recommended_file<'a, 'b>(
     let mut tmpfile: &File = gen.open();
     for maybe_line in reader.lines() {
         let line: String = maybe_line.unwrap();
-        match match_line(line.as_str()) {
-            Some((key,range)) => {
-                let v = vars.get(key);
-                trace!("key {}", key);
-                trace!("val {:?}", v);
-                trace!("line {:?}", line);
-                let before: &str = &line[..range.start];
-                let after: &str = &line[range.end..];
-                write!(tmpfile, "{}", before).expect("write failed");
-
-                if v.is_some() {
-                    let value: &str = v.unwrap();
-                    write!(tmpfile, "{}", value).expect("write failed");
-                    writeln!(tmpfile, "{}", after).expect("write failed");
-                } else {
-                    return Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {} from template {}", key, template)))
-                };
+        match replace_line(vars, line.clone()) {
+            Ok(maybe_new_line) => {
+                match maybe_new_line {
+                    Some(new_line) => {
+                        writeln!(tmpfile, "{}", new_line).expect("write failed");
+                    },
+                    None => {
+                            trace!("no vars in line {:?}", line);
+                            writeln!(tmpfile, "{}", line).expect("Cannot write to tmp file");
+                    }
+                }
             },
-            None => {
-                    trace!("no vars in line {:?}", line);
-                    writeln!(tmpfile, "{}", line).expect("Cannot write to tmp file");
-            }
+            Err(e) => {
+                panic!(e);
+            }, 
         }
-    }  
+    }
     return Ok(gen);
 }
 

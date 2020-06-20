@@ -19,7 +19,7 @@ use drt::Mode;
 use drt::SrcFile;
 use drt::DestFile;
 use drt::GenFile;
-use drt::template::{create_from, generate_recommended_file};
+use drt::template::{create_from, generate_recommended_file, replace_line};
 use std::io::Error;
 use std::slice::Iter;
 use log::Level;
@@ -124,7 +124,7 @@ fn execute_active(cmd: &str) {
 		.output()
 		.expect("cmd failed");
 	println!("LIVE: run: {}", cmd);
-	io::stdout().write_all(&output.stdout);
+	io::stdout().write_all(&output.stdout).expect("error writing to stdout");
 	println!("status code: {}", output.status.code().unwrap());
 }
 fn execute_interactive(cmd: &str) {
@@ -136,7 +136,7 @@ fn execute_interactive(cmd: &str) {
 			execute_active(cmd)
 		}
 		_ => { 
-			execute(Mode::Interactive, cmd);
+			execute(Mode::Interactive, cmd).expect("execute failed");
 		}
 	}
 }
@@ -170,7 +170,10 @@ fn do_action<'g>(
         },
         Action::Execute => {
             let cmd = special_vars.get(CMD).expect("Execute command required");
-            execute(mode, cmd)?;
+            match replace_line(vars, String::from(*cmd))? {
+                Some(new_cmd) => execute(mode, &new_cmd)?,
+                None => execute(mode, cmd)?
+            }
             Ok(())
         },
         Action::None => {

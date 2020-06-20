@@ -21,7 +21,8 @@ x_active:
 x_interactive:
 	$(drt) -a v value fake_value t template/test.config template/out.config
 	$(drt) -i x chmod 600 template/out.config
-
+xvar:
+	$(drt) v f template/out.config x chmod 600 @@f@@
 create:
 	rm -vf template/out.config
 	$(MAKE) active	
