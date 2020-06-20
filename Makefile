@@ -4,12 +4,23 @@ drt=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
 default: test
 
 passive:
+	$(drt) -a v value fake_value t template/test.config template/out.config
 	$(drt) v value real_value t template/test.config template/out.config
 active:
 	$(drt) -a v value real_value t template/test.config template/out.config
 interactive:
 	$(drt) -a v value fake_value t template/test.config template/out.config
 	$(drt) -i v value real_value t template/test.config template/out.config
+
+x:
+	$(drt) -a v value fake_value t template/test.config template/out.config
+	$(drt) x chmod 600 template/out.config
+x_active:
+	$(drt) -a v value fake_value t template/test.config template/out.config
+	$(drt) -a x chmod 600 template/out.config
+x_interactive:
+	$(drt) -a v value fake_value t template/test.config template/out.config
+	$(drt) -i x chmod 600 template/out.config
 
 create:
 	rm -vf template/out.config
