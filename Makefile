@@ -7,7 +7,7 @@ passive:
 	$(drt) v value real_value t template/test.config template/out.config
 active:
 	$(drt) -a v value real_value t template/test.config template/out.config
-passive:
+interactive:
 	$(drt) -a v value fake_value t template/test.config template/out.config
 	$(drt) -i v value real_value t template/test.config template/out.config
 
