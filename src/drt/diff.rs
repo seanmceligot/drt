@@ -26,7 +26,7 @@ pub fn diff<'f,'g>(path: &'f Path, path2: &'f Path) -> DiffStatus {
             .arg(path2)
             .output()
             .expect("diff failed");
-        io::stdout().write_all(&output.stdout).unwrap();
+        //io::stdout().write_all(&output.stdout).unwrap();
         match output.status.code().unwrap() {
             1 => DiffStatus::Changed(output.stdout.into_iter()),
             2 => DiffStatus::Failed,

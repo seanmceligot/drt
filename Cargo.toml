@@ -1,6 +1,6 @@
 [package]
 name = "drt"
-version = "0.0.1"
+version = "0.3.0"
 authors = ["Sean McEligot <sean.mceligot@gmail.com>"]
 
 [dependencies]
@@ -11,6 +11,7 @@ tempfile = "*"
 rand = "*"
 log = "0.4"
 simple_logger = "1.6.0"
+ansi_term = "0.12"
 
 [lib]
 name = "drt"

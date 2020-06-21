@@ -17,6 +17,7 @@ use log::trace;
 use drt::DestFile;
 use std::ops::Range;
 use log::debug;
+use ansi_term::Colour::{Green, Yellow};
 
 #[test]
 fn test_regex() {
@@ -124,7 +125,7 @@ fn merge_passive(_template: &SrcFile, path: &GenFile, path2: &DestFile) -> bool 
         .arg(path2)
         .status()
         .expect("failed to execute process");
-
+    println!("{} {}", Yellow.paint("WOULD: modify "), Yellow.paint(path2.to_string()) );
     println!("with: {}", status);
     status.success()
 }
@@ -136,6 +137,7 @@ fn merge_active(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bool {
         .status()
         .expect("failed to execute process");
 
+    println!("{} {}", Green.paint("LIVE: modify "), Green.paint(dest.to_string()) );
     println!("with: {}", status);
     status.success()
 }
@@ -168,7 +170,7 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
-            debug!("no changes '{}'", dest);
+            println!("{} {}", Yellow.paint("NO CHANGE: "), Yellow.paint(dest.to_string()) );
             Ok(DiffStatus::NoChanges)
         }
         DiffStatus::Failed => {
@@ -196,6 +198,7 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
             };
             match ans {
                 'd' => {
+                    println!("{} {}", Yellow.paint("WOULD: modify"), Yellow.paint(dest.to_string()) );
                     for ch in difftext {
                         print!("{}", ch as char)
                     }
@@ -211,10 +214,10 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
                 'm' => {
                     let _status_code = merge(mode, template, gen, dest);
                     let _status = diff(&gen.path(), &dest.path());
-                    create_from(mode, template, &gen, dest).expect("cannot create dest from template");
+                    create_from(Mode::Interactive, template, &gen, dest).expect("cannot create dest from template");
                 }
                 'c' => {
-                    std::fs::copy(gen.path(), dest.path()).expect("copy failed");
+                    copy_active(gen, dest);
                 }
                 _ => {
                     create_from(mode, template, &gen, dest).expect("cannot create dest from template");
@@ -225,12 +228,12 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
     }
 }
 fn copy_passive(_path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("WOULD: create {}", path2 );
+    println!("{} {}", Yellow.paint("WOULD: create "), Yellow.paint(path2.to_string()) );
     // TODO: check if we can write to path2
     Ok(())
 }
 fn copy_active(path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("LIVE: create {}", path2 );
+    println!("{} {}", Green.paint("LIVE: create "), Green.paint(path2.to_string()) );
     std::fs::copy(path.path(), path2.path()).expect("create_from: copy failed:");
     Ok(())
 }

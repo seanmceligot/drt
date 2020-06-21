@@ -5,6 +5,7 @@ extern crate getopts;
 extern crate glob;
 extern crate regex;
 extern crate tempfile;
+extern crate ansi_term;
 
 use self::glob::glob;
 use getopts::Options;
@@ -26,7 +27,7 @@ use log::Level;
 use drt::userinput::ask;
 use std::process::Command;
 use std::io::{self, Write};
-
+use ansi_term::Colour::{Green, Red, Yellow};
 static INFILE: &str = "if";
 static OUTFILE: &str = "of";
 static CMD: &str = "x";
@@ -44,24 +45,6 @@ fn create_or_diff
     } else {
         create_from(mode, template, gen, dest)
     }
-}
-//fn get_x<'r>(p: &'r Point) -> &'r f64 { &p.x }
-fn _process_dir(pattern: &str) -> Vec<PathBuf> {
-    let mut vec = Vec::new();
-    debug!("glob {}", pattern);
-
-    match glob(pattern) {
-        Err(e1) => debug!("{:?}", e1),
-        Ok(paths) => {
-            for globresult in paths {
-                match globresult {
-                    Err(glob_error) => debug!("{:?}", glob_error),
-                    Ok(pathbuf) => vec.push(pathbuf),
-                }
-            }
-        }
-    }
-    vec
 }
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
@@ -81,11 +64,6 @@ enum Type {
     //OutputFile,
     Variable,
     Unknown
-}
-fn _drain_to(mut input: String, ch: char) -> String {
-    let offset = input.find(ch).unwrap_or(input.len());
-    let st: String = input.drain(..offset + 1).collect();
-    return st;
 }
 #[test]
 fn test_parse_type() {
@@ -146,7 +124,7 @@ fn execute<'g>(
 ) -> Result<(), Error> {
     match mode {
         Mode::Interactive => { execute_interactive(cmd); },
-        Mode::Passive => println!("WOULD: run: {}", cmd),
+        Mode::Passive => println!("{} {}", Yellow.bold().paint("WOULD: run: "), Yellow.paint(cmd)),
         Mode::Active=> { execute_active(cmd) }
     }
     Ok(())
