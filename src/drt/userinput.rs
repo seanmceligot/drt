@@ -6,9 +6,8 @@ pub fn ask(question: &str) -> char {
         let mut line = String::new();
         stdin().read_line(&mut line).expect("No User Input");
         if ! line.is_empty() {
-            match line.trim().chars().nth(0) {
-                Some(ch) => return ch,
-                _ => {}
+            if let Some(ch) = line.trim().chars().next() {
+                return ch
             }
         }
     }

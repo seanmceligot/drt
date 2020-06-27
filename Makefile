@@ -1,6 +1,6 @@
 
 drt=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
-#drt=cargo run --bin drt --
+drt=cargo run --bin drt --
 
 default: test
 
@@ -28,7 +28,8 @@ xvar:
 create:
 	rm -vf template/out.config
 	$(MAKE) active	
-test: 
+
+test:  lint
 	RUST_BACKTRACE=1 cargo test
 
 help:

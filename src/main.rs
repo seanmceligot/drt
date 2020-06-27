@@ -7,7 +7,6 @@ extern crate regex;
 extern crate tempfile;
 extern crate ansi_term;
 
-use self::glob::glob;
 use getopts::Options;
 use std::collections::HashMap;
 use std::env;
@@ -27,7 +26,7 @@ use log::Level;
 use drt::userinput::ask;
 use std::process::Command;
 use std::io::{self, Write};
-use ansi_term::Colour::{Green, Red, Yellow};
+use ansi_term::Colour::{Yellow};
 static INFILE: &str = "if";
 static OUTFILE: &str = "of";
 static CMD: &str = "x";
@@ -72,8 +71,8 @@ fn test_parse_type() {
     match parse_type(&String::from("v")) { Type::Variable => {}, _ => panic!("expected Template"), }
 }
 
-fn parse_type(input: &String) -> Type {
-    match input.as_str() {
+fn parse_type(input: &str) -> Type {
+    match input {
         "t" => Type::Template,
         "x" => Type::Execute,
         "v" => Type::Variable,
@@ -118,7 +117,7 @@ fn execute_interactive(cmd: &str) {
 		}
 	}
 }
-fn execute<'g>(
+fn execute(
     mode: Mode,
     cmd: &str
 ) -> Result<(), Error> {

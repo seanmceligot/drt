@@ -28,8 +28,7 @@ pub fn create_dir( maybe_path: Option<&Path>) {
                         }
                         'y' => {
                             println!("mkdir {}", dir.display());
-                            std::fs::create_dir_all(dir)
-                                .expect(&format!("create dir failed: {}", dir.display()));
+                            std::fs::create_dir_all(dir).unwrap_or_else(|_| panic!("create dir failed: {}", dir.display()));
                             if !dir.exists() {
                                 println!("dir not found {}", dir.display());
                             }

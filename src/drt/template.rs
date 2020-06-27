@@ -44,7 +44,7 @@ fn match_line<'a>(line: &'a str) -> Option<(&'a str,Range<usize>)> {
             let all: Match = cap.get(0).unwrap();
             let k: Match = cap.name("k").unwrap();
             let key = k.as_str();
-            return Some( (key, all.range()) )
+            Some( (key, all.range()) )
         }
         None => None
     }
@@ -64,19 +64,18 @@ pub fn replace_line(
             new_line.push_str(before);
             //write!(tmpfile, "{}", before).expect("write failed");
 
-            if v.is_some() {
-                let value: &str = v.unwrap();
+            if let Some(value) = v {
                 new_line.push_str(value);
                 new_line.push_str(after);
                 new_line.push('\n');
                 //write!(tmpfile, "{}", value).expect("write failed");
                 //writeln!(tmpfile, "{}", after).expect("write failed");
-                return Ok(Some(new_line))
+                Ok(Some(new_line))
             } else {
-                return Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {}", key)))
-            };
+                Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {}", key)))
+            }
         },
-        None => return Ok(None)
+        None => Ok(None)
     }
 }
 // creates the tmp file for comparing to the dest file
@@ -109,7 +108,7 @@ pub fn generate_recommended_file<'a, 'b>(
             }, 
         }
     }
-    return Ok(gen);
+    Ok(gen)
 }
 
 fn merge(mode: Mode, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
@@ -163,7 +162,7 @@ fn merge_interactive(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bo
     println!("with: {}", status);
     status.success()
 }
-pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, dest: &'f DestFile) -> Result<DiffStatus, Error> {
+pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, dest: &'f DestFile) -> Result<DiffStatus, Error> {
     trace!("dest {:?}", dest);
     dest.mkdirs();
     trace!("create_from");
@@ -217,7 +216,7 @@ pub fn create_from<'f,'g>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, 
                     create_from(Mode::Interactive, template, &gen, dest).expect("cannot create dest from template");
                 }
                 'c' => {
-                    copy_active(gen, dest);
+                    copy_active(gen, dest).expect("copy failed");
                 }
                 _ => {
                     create_from(mode, template, &gen, dest).expect("cannot create dest from template");

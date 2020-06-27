@@ -27,8 +27,8 @@ pub struct SrcFile {
 }
 
 impl SrcFile {
-    pub fn new(path: PathBuf) -> SrcFile {
-        SrcFile { path: path }
+    pub fn new(p: PathBuf) -> SrcFile {
+        SrcFile { path: p }
     }
     pub fn open(&self) -> Result<File, Error> {
         trace!("open path {:?}", self.path);
@@ -45,8 +45,8 @@ pub struct DestFile {
     path: PathBuf,
 }
 impl DestFile {
-    pub fn new(path: PathBuf) -> DestFile {
-        DestFile { path: path }
+    pub fn new(p: PathBuf) -> DestFile {
+        DestFile { path: p }
     }
     pub fn exists(&self) -> bool {
         self.path.exists()
@@ -73,6 +73,12 @@ impl GenFile {
     }
     pub fn path(&self) -> & Path {
         self.file.path()
+    }
+}
+
+impl Default for GenFile {
+    fn default() -> Self { 
+        GenFile::new()
     }
 }
 
