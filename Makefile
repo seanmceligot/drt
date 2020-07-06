@@ -1,28 +1,33 @@
 
-drt=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
+drt_local=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
 drt=cargo run --bin drt --
+drt=drt
 
 default: test
 
+er:
+	${drt_local} foo
+	${drt_local} v
+	${drt_local} v x
 passive:
-	$(drt) -a v value fake_value t template/test.config template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) v value real_value t template/test.config template/out.config
 active:
-	$(drt) -a v value fake_value t template/test.config template/out.config
-	$(drt) -a v value real_value t template/test.config template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
+	$(drt) --active v value real_value t template/test.config template/out.config
 interactive:
-	$(drt) -a v value fake_value t template/test.config template/out.config
-	$(drt) -i v value real_value t template/test.config template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
+	$(drt) --interactive v value real_value t template/test.config template/out.config
 
 x:
-	$(drt) -a v value fake_value t template/test.config template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) x chmod 600 template/out.config
 x_active:
-	$(drt) -a v value fake_value t template/test.config template/out.config
-	$(drt) -a x chmod 600 template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
+	$(drt) --active x chmod 600 template/out.config
 x_interactive:
-	$(drt) -a v value fake_value t template/test.config template/out.config
-	$(drt) -i x chmod 600 template/out.config
+	$(drt) --active v value fake_value t template/test.config template/out.config
+	$(drt) --interactive x chmod 600 template/out.config
 xvar:
 	$(drt) v f template/out.config x chmod 600 @@f@@
 create:
@@ -61,3 +66,9 @@ clean:
 
 update:
 	cargo build
+
+install:
+	cargo install
+
+d:
+	./demo.sh
