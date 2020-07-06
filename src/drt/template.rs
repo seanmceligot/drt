@@ -180,7 +180,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
             debug!("create '{}'", dest);
             debug!("cp {:?} {:?}", gen, dest);
             match mode {
-                Mode::Passive =>  copy_passive(gen, dest)?,
+                Mode::Passive =>  create_passive(gen, dest)?,
                 Mode::Active => copy_active(gen, dest)?,
                 Mode::Interactive => copy_interactive(gen, dest)?
             };
@@ -191,7 +191,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
                 Mode::Passive => 'd',
                 Mode::Active => 'c',
                 Mode::Interactive => ask(
-                    &format!( "{}: {} {} (c)opy (m)erge s(k)ip print (d)iff merge to (t)emplate", "files don't match", 
+                    &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate", "files don't match", 
                         gen, 
                         dest))
             };
@@ -202,7 +202,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
                         print!("{}", ch as char)
                     }
                 }
-                'k' => {
+                'c' => {
                     println!("skipping cp {} {}", gen, dest);
                 }
                 't' => {
@@ -215,7 +215,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
                     let _status = diff(&gen.path(), &dest.path());
                     create_from(Mode::Interactive, template, &gen, dest).expect("cannot create dest from template");
                 }
-                'c' => {
+                'o' => {
                     copy_active(gen, dest).expect("copy failed");
                 }
                 _ => {
@@ -226,7 +226,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
         }
     }
 }
-fn copy_passive(_path: &GenFile, path2: &DestFile) -> Result<(), Error> {
+fn create_passive(_path: &GenFile, path2: &DestFile) -> Result<(), Error> {
     println!("{} {}", Yellow.paint("WOULD: create "), Yellow.paint(path2.to_string()) );
     // TODO: check if we can write to path2
     Ok(())
