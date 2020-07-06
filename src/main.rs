@@ -26,13 +26,10 @@ use log::Level;
 use drt::userinput::ask;
 use std::process::Command;
 use std::io::{self, Write};
-use ansi_term::Colour::{Yellow};
-static INFILE: &str = "if";
-static OUTFILE: &str = "of";
-static CMD: &str = "x";
+use ansi_term::Colour::{Green, Yellow};
 
-fn create_or_diff
-    (mode: Mode, 
+fn create_or_diff(
+    mode: Mode, 
     template: & SrcFile,
     dest: & DestFile,
     gen: & GenFile
@@ -51,8 +48,8 @@ fn print_usage(program: &str, opts: Options) {
 }
 #[derive(Debug)]
 enum Action {
-    Template,
-    Execute,
+    Template(String,String),
+    Execute(String),
     None,
 }
 #[derive(Debug)]
@@ -100,21 +97,15 @@ fn execute_active(cmd: &str) {
 		.args(&parts[1..])
 		.output()
 		.expect("cmd failed");
-	println!("LIVE: run: {}", cmd);
+    println!("{} {}", Green.paint("LIVE: run "), Green.paint(cmd) );
 	io::stdout().write_all(&output.stdout).expect("error writing to stdout");
 	println!("status code: {}", output.status.code().unwrap());
 }
 fn execute_interactive(cmd: &str) {
 	match ask(&format!("run (y/n): {}", cmd)) {
-		'n' => {
-			println!("SKIPPED: run: {}", cmd);
-		},
-		'y' => {
-			execute_active(cmd)
-		}
-		_ => { 
-			execute(Mode::Interactive, cmd).expect("execute failed");
-		}
+		'n' => println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) ),
+		'y' => execute_active(cmd),
+		_ => execute_interactive(cmd)
 	}
 }
 fn execute(
@@ -123,7 +114,7 @@ fn execute(
 ) -> Result<(), Error> {
     match mode {
         Mode::Interactive => { execute_interactive(cmd); },
-        Mode::Passive => println!("{} {}", Yellow.bold().paint("WOULD: run: "), Yellow.paint(cmd)),
+        Mode::Passive => println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) ),
         Mode::Active=> { execute_active(cmd) }
     }
     Ok(())
@@ -132,24 +123,21 @@ fn execute(
 fn do_action<'g>(
     mode: Mode,
     vars: &'g HashMap<&'g str, &'g str>,
-    special_vars: &'g HashMap<&'g str, &'g str>,
     action: Action,
 ) -> Result<(), Error> {
     match action {
-        Action::Template => {
-            let template_file_name = special_vars.get(INFILE).expect("template_file_name required");
+        Action::Template(template_file_name, output_file_name) => {
             let template_file = SrcFile::new(PathBuf::from(template_file_name));
-            let output_file_name = special_vars.get(OUTFILE).expect("output_file_name required");
             let output_file = DestFile::new(PathBuf::from(output_file_name));
 
             process_template_file(mode, &vars, &template_file, &output_file)?;
             Ok(())
         },
-        Action::Execute => {
-            let cmd = special_vars.get(CMD).expect("Execute command required");
-            match replace_line(vars, String::from(*cmd))? {
+        Action::Execute(cmd) => {
+            //let cmd = special_vars.get(CMD).expect("Execute command required");
+            match replace_line(vars, cmd.clone())? {
                 Some(new_cmd) => execute(mode, &new_cmd)?,
-                None => execute(mode, cmd)?
+                None => execute(mode, &cmd)?
             }
             Ok(())
         },
@@ -164,14 +152,14 @@ fn test_do_action() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
     let mut special_vars: HashMap<&str, &str> = HashMap::new();
     vars.insert("value", "unit_test");
-    special_vars.insert(INFILE, "template/test.config");
-    special_vars.insert(OUTFILE, "template/out.config");
-    match do_action(Mode::Passive, &vars, &special_vars, Action::Template) {
+    let template = Action::Template( String::from("template/test.config"), String::from("template/out.config"));
+    match do_action(Mode::Passive, &vars, template) {
         Ok(_) =>  {}
         Err(e) => panic!("{}", e)
     }
 }
-fn main() -> Result<(), std::io::Error> {
+
+fn main() {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
 
@@ -184,7 +172,7 @@ fn main() -> Result<(), std::io::Error> {
 
     if matches.opt_present("h") {
         print_usage(&program, opts);
-        return Ok(());
+        return;
     }
     if matches.opt_present("debug") {
         simple_logger::init_with_level(Level::Trace).unwrap();
@@ -203,13 +191,12 @@ fn main() -> Result<(), std::io::Error> {
         let mut input_list:Iter<String>= matches.free.iter(); 
         while let Some(input) =  input_list.next() {
             let t:Type = parse_type(input);
-        	let mut special_vars: HashMap<&str, &str> = HashMap::new();
 			let mut cmd = String::new();
             let action = match t {
                 Type::Template => {
-                    special_vars.insert(INFILE, input_list.next().expect("expected template: tp template output"));
-                    special_vars.insert(OUTFILE, input_list.next().expect("expected output: tp template output"));
-                    Action::Template
+                    let infile = String::from(input_list.next().expect("expected template: tp template output"));
+                    let outfile = String::from(input_list.next().expect("expected output: tp template output"));
+                    Action::Template(infile, outfile)
                 },
                 Type::Variable=> {
                     let key = input_list.next().expect("expected key: v key value");
@@ -218,7 +205,7 @@ fn main() -> Result<(), std::io::Error> {
                     Action::None
                 },
                 Type::Execute => {
-        			while let Some(input) =  input_list.next() {
+        			while let Some(input) = input_list.next() {
 						if cmd.is_empty() {
 							cmd.push_str(&input.to_string());
 						} else {
@@ -226,9 +213,9 @@ fn main() -> Result<(), std::io::Error> {
 							cmd.push_str(&input.to_string());
 						}
 					}
-					let cmd_str: &str = cmd.as_str();
-                    special_vars.insert(CMD, cmd_str);
-                    Action::Execute
+					//let cmd_str: &str = cmd.as_str();
+                    //special_vars.insert(CMD, cmd_str);
+                    Action::Execute(cmd)
                 },
                 Type::Unknown => {
                     panic!("Unknown type: {}", input);
@@ -237,11 +224,12 @@ fn main() -> Result<(), std::io::Error> {
             //debug!("special_vars {:#?}", &special_vars);
             //debug!("vars {:#?}", &vars);
             debug!("action {:#?}", action);
-            match do_action(mode, &vars, &special_vars, action) {
-                Ok(_) =>  {}
-                Err(e) => println!("{}", e)
+            match do_action(mode, &vars, action) {
+                Ok(a) => a,
+                Err(e) => { 
+                    println!("{}", e);
+                }
             }
         }
     }
-    Ok(())
 }
