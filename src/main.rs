@@ -134,7 +134,6 @@ fn do_action<'g>(
             Ok(())
         },
         Action::Execute(cmd) => {
-            //let cmd = special_vars.get(CMD).expect("Execute command required");
             match replace_line(vars, cmd.clone())? {
                 Some(new_cmd) => execute(mode, &new_cmd)?,
                 None => execute(mode, &cmd)?
@@ -150,7 +149,6 @@ fn do_action<'g>(
 #[test]
 fn test_do_action() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
-    let mut special_vars: HashMap<&str, &str> = HashMap::new();
     vars.insert("value", "unit_test");
     let template = Action::Template( String::from("template/test.config"), String::from("template/out.config"));
     match do_action(Mode::Passive, &vars, template) {
@@ -214,14 +212,12 @@ fn main() {
 						}
 					}
 					//let cmd_str: &str = cmd.as_str();
-                    //special_vars.insert(CMD, cmd_str);
                     Action::Execute(cmd)
                 },
                 Type::Unknown => {
                     panic!("Unknown type: {}", input);
                 }
             };
-            //debug!("special_vars {:#?}", &special_vars);
             //debug!("vars {:#?}", &vars);
             debug!("action {:#?}", action);
             match do_action(mode, &vars, action) {

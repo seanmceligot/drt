@@ -1,8 +1,8 @@
 
 drt_local=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
 drt=cargo run --bin drt --
-drt=drt
-
+drt_installed=drt
+drt=${drt_installed}
 default: test
 
 er:
@@ -72,3 +72,6 @@ install:
 
 d:
 	./demo.sh
+
+slapd:
+	${drt_local} t openldap/slapd.conf /tmp/slapd.conf
