@@ -189,7 +189,7 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
         DiffStatus::Changed(difftext) => {
             let ans = match mode {
                 Mode::Passive => 'd',
-                Mode::Active => 'c',
+                Mode::Active => 'o',
                 Mode::Interactive => ask(
                     &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate", "files don't match", 
                         gen, 
