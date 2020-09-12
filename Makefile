@@ -2,7 +2,7 @@
 drt_local=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
 drt=cargo run --bin drt --
 drt_installed=drt
-drt=${drt_installed}
+drt=${drt_local}
 default: test
 
 er:
@@ -25,6 +25,11 @@ x:
 x_active:
 	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) --active x chmod 600 template/out.config
+
+active_env: DRT_ACTIVE=1
+active_env:
+	$(drt) "--" x ls -l $(MAKE)
+
 x_interactive:
 	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) --interactive x chmod 600 template/out.config

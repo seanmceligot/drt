@@ -22,11 +22,12 @@ use drt::GenFile;
 use drt::template::{create_from, generate_recommended_file, replace_line};
 use std::io::Error;
 use std::slice::Iter;
-use log::Level;
+use log::LevelFilter;
 use drt::userinput::ask;
 use std::process::Command;
 use std::io::{self, Write};
 use ansi_term::Colour::{Green, Yellow};
+use simple_logger::SimpleLogger;
 
 fn create_or_diff(
     mode: Mode, 
@@ -173,13 +174,19 @@ fn main() {
         return;
     }
     if matches.opt_present("debug") {
-        simple_logger::init_with_level(Level::Trace).unwrap();
+        SimpleLogger::new().with_level(LevelFilter::Trace).init().expect("log inti error");
     } else {
-        simple_logger::init_with_level(Level::Warn).unwrap();
+        SimpleLogger::new().with_level(LevelFilter::Warn).init().expect("log inti error");
+    }
+    let drt_active_env = env::var("DRT_ACTIVE").is_ok();
+    if drt_active_env {
+        debug!("DRT_ACTIVE enabled DRT_ACTIVE= {:#?}", env::var("DRT_ACTIVE").unwrap());
+    } else {
+        debug!("DRT_ACTIVE not set");
     }
     let mode = if matches.opt_present("interactive") {
         Mode::Interactive
-    } else if matches.opt_present("active") {
+    } else if matches.opt_present("active") | drt_active_env {
         Mode::Active
     } else {
         Mode::Passive
