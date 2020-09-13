@@ -12,6 +12,7 @@ rand = "*"
 log = "0.4"
 simple_logger = "1.6.0"
 ansi_term = "0.12"
+which = "*"
 
 [lib]
 name = "drt"

@@ -6,11 +6,13 @@ extern crate glob;
 extern crate regex;
 extern crate tempfile;
 extern crate ansi_term;
+extern crate which;
 
 use getopts::Options;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
+use std::path::Path;
 use std::str;
 mod drt;
 use drt::diff::diff;
@@ -26,8 +28,30 @@ use log::LevelFilter;
 use drt::userinput::ask;
 use std::process::Command;
 use std::io::{self, Write};
-use ansi_term::Colour::{Green, Yellow};
+use ansi_term::Colour::{Green, Yellow, Red};
 use simple_logger::SimpleLogger;
+use std::io::ErrorKind;
+use std::fmt;
+
+#[derive(Debug)]
+enum DrtError {
+    Error,
+    Warn
+}
+impl fmt::Display for DrtError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for DrtError {
+    fn description(&self) -> &str {
+        match *self {
+            DrtError::Warn => "Warning(s)",
+            DrtError::Error => "Error(s)"
+        }
+    }
+}
 
 fn create_or_diff(
     mode: Mode, 
@@ -92,7 +116,24 @@ fn test_execute_active() {
     execute_active("/bin/false");
     execute_active("echo echo_ping");
 }
-fn execute_active(cmd: &str) {
+fn exectable_full_path(maybe_prg: which::Result<PathBuf>) ->  Result<(), DrtError> {
+    match maybe_prg {
+        Ok(prg_path) => {
+            println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(prg_path.to_string_lossy()));
+            Ok(())
+        }
+        Err(e) => { 
+            println!("{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string()));
+            Err(DrtError::Warn)
+        }
+    }
+}
+fn execute_inactive(cmd: &str) -> Result<(), DrtError> {
+	let parts: Vec<&str> = cmd.split(' ').collect();
+    let prg = Path::new(parts[0]);
+    exectable_full_path(which::which(prg))
+}
+fn execute_active(cmd: &str)  -> Result<(), DrtError> {
 	let parts: Vec<&str> = cmd.split(' ').collect();
 	let output = Command::new(parts[0])
 		.args(&parts[1..])
@@ -100,11 +141,27 @@ fn execute_active(cmd: &str) {
 		.expect("cmd failed");
     println!("{} {}", Green.paint("LIVE: run "), Green.paint(cmd) );
 	io::stdout().write_all(&output.stdout).expect("error writing to stdout");
-	println!("status code: {}", output.status.code().unwrap());
+    match output.status.code() {
+        Some(n) => {
+            if n == 0 {
+                println!("{} {}", Green.paint("status code: "), Green.paint(n.to_string()));
+            } else {
+                println!("{} {}", Yellow.paint("status code: "), Red.paint(n.to_string()));
+            }
+            Ok(())
+        },
+        None => {
+            println!("{}", Red.paint("Teminated without status code: "));
+            Err(DrtError::Warn)
+        }
+    }
 }
-fn execute_interactive(cmd: &str) {
+fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
 	match ask(&format!("run (y/n): {}", cmd)) {
-		'n' => println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) ),
+		'n' => {
+            println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) );
+            Err(DrtError::Warn)
+        },
 		'y' => execute_active(cmd),
 		_ => execute_interactive(cmd)
 	}
@@ -112,13 +169,12 @@ fn execute_interactive(cmd: &str) {
 fn execute(
     mode: Mode,
     cmd: &str
-) -> Result<(), Error> {
+) -> Result<(), DrtError> {
     match mode {
-        Mode::Interactive => { execute_interactive(cmd); },
-        Mode::Passive => println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) ),
-        Mode::Active=> { execute_active(cmd) }
+        Mode::Interactive => execute_interactive(cmd),
+        Mode::Passive => execute_inactive(cmd), 
+        Mode::Active=> execute_active(cmd)
     }
-    Ok(())
 }
 
 fn do_action<'g>(
@@ -135,11 +191,14 @@ fn do_action<'g>(
             Ok(())
         },
         Action::Execute(cmd) => {
-            match replace_line(vars, cmd.clone())? {
-                Some(new_cmd) => execute(mode, &new_cmd)?,
-                None => execute(mode, &cmd)?
+            let the_cmd = match replace_line(vars, cmd.clone())? {
+                Some(new_cmd) => new_cmd,
+                None => cmd
+			};
+			match execute(mode, &the_cmd) {
+				Ok(()) => Ok(()),
+				Err(drt_error) => Err(Error::new(ErrorKind::Other, format!("{:?}", drt_error)))
             }
-            Ok(())
         },
         Action::None => {
             Ok(())
@@ -210,6 +269,7 @@ fn main() {
                     Action::None
                 },
                 Type::Execute => {
+					#[allow(clippy::while_let_on_iterator)]
         			while let Some(input) = input_list.next() {
 						if cmd.is_empty() {
 							cmd.push_str(&input.to_string());
