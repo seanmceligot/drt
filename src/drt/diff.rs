@@ -1,7 +1,7 @@
+use log::debug;
 use std::path::Path;
 use std::process::Command;
 use std::vec::IntoIter;
-use log::debug;
 
 #[derive(Debug)]
 pub struct DiffText<'f> {

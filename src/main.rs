@@ -1,80 +1,65 @@
 #[macro_use]
 extern crate log;
-extern crate simple_logger;
+extern crate ansi_term;
 extern crate getopts;
 extern crate glob;
 extern crate regex;
+extern crate simple_logger;
 extern crate tempfile;
-extern crate ansi_term;
 extern crate which;
 
 use getopts::Options;
 use std::collections::HashMap;
 use std::env;
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::str;
 mod drt;
+use ansi_term::Colour::{Green, Red, Yellow};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
-use drt::Mode;
-use drt::SrcFile;
+use drt::template::{create_from, generate_recommended_file, replace_line};
+use drt::userinput::ask;
 use drt::DestFile;
 use drt::GenFile;
-use drt::template::{create_from, generate_recommended_file, replace_line};
-use std::io::Error;
-use std::slice::Iter;
+use drt::Mode;
+use drt::DrtError;
+use drt::SrcFile;
 use log::LevelFilter;
-use drt::userinput::ask;
-use std::process::Command;
-use std::io::{self, Write};
-use ansi_term::Colour::{Green, Yellow, Red};
 use simple_logger::SimpleLogger;
-use std::io::ErrorKind;
-use std::fmt;
-
-#[derive(Debug)]
-enum DrtError {
-    Error,
-    Warn
-}
-impl fmt::Display for DrtError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for DrtError {
-    fn description(&self) -> &str {
-        match *self {
-            DrtError::Warn => "Warning(s)",
-            DrtError::Error => "Error(s)"
-        }
-    }
-}
+use std::io::{self, Write};
+use std::process::Command;
+use std::slice::Iter;
 
 fn create_or_diff(
-    mode: Mode, 
-    template: & SrcFile,
-    dest: & DestFile,
-    gen: & GenFile
-) -> Result<DiffStatus, Error> {
+    mode: Mode,
+    template: &SrcFile,
+    dest: &DestFile,
+    gen: &GenFile,
+) -> Result<DiffStatus, DrtError> {
     if dest.exists() {
-            debug!("create_or_diff: diff");
-            diff(gen.path(), dest.path());
-            create_from(mode, template, gen, dest)
+        debug!("create_or_diff: diff");
+        diff(gen.path(), dest.path());
+        create_from(mode, template, gen, dest)
     } else {
         create_from(mode, template, gen, dest)
     }
 }
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
-    print!("{}", opts.usage(&brief));
+    println!("{}", opts.usage(&brief));
+    println!("COMMANDS");
+    println!();
+    println!("v key value            set template variable ");
+    println!("t infile outfile       copy infile to outfile replacing @@key@@ with value  ");
+    println!("x command arg1 arg2    run command  ");
+    println!("-- x command -arg      run command (add -- to make sure hyphens are passed on");
 }
 #[derive(Debug)]
 enum Action {
-    Template(String,String),
+    Template(String, String),
     Execute(String),
+    Error,
     None,
 }
 #[derive(Debug)]
@@ -84,13 +69,22 @@ enum Type {
     //InputFile,
     //OutputFile,
     Variable,
-    Unknown
+    Unknown,
 }
 #[test]
 fn test_parse_type() {
-    match parse_type(&String::from("t")) { Type::Template => {}, _ => panic!("expected Template"), }
-    match parse_type(&String::from("x")) { Type::Execute => {}, _ => panic!("expected Execute"), }
-    match parse_type(&String::from("v")) { Type::Variable => {}, _ => panic!("expected Template"), }
+    match parse_type(&String::from("t")) {
+        Type::Template => {}
+        _ => panic!("expected Template"),
+    }
+    match parse_type(&String::from("x")) {
+        Type::Execute => {}
+        _ => panic!("expected Execute"),
+    }
+    match parse_type(&String::from("v")) {
+        Type::Variable => {}
+        _ => panic!("expected Template"),
+    }
 }
 
 fn parse_type(input: &str) -> Type {
@@ -98,58 +92,80 @@ fn parse_type(input: &str) -> Type {
         "t" => Type::Template,
         "x" => Type::Execute,
         "v" => Type::Variable,
-        _ => { debug!("Unknown {}", input); Type::Unknown},
+        _ => {
+            debug!("Unknown {}", input);
+            Type::Unknown
+        }
     }
 }
 fn process_template_file<'t>(
     mode: Mode,
     vars: &'t HashMap<&'_ str, &'_ str>,
-    template: & SrcFile,
-    dest: & DestFile
-) -> Result<DiffStatus, Error> {
+    template: &SrcFile,
+    dest: &DestFile,
+) -> Result<DiffStatus, DrtError> {
     let gen = generate_recommended_file(vars, template)?;
     create_or_diff(mode, template, dest, &gen)
 }
 #[test]
-fn test_execute_active() {
-    execute_active("/bin/true");
-    execute_active("/bin/false");
-    execute_active("echo echo_ping");
+fn test_execute_active() -> Result<(), DrtError> {
+    execute_active("/bin/true")?;
+    execute_active("/bin/false")?;
+    execute_active("echo echo_ping")?;
+    Ok(())
 }
-fn exectable_full_path(maybe_prg: which::Result<PathBuf>) ->  Result<(), DrtError> {
+fn exectable_full_path(maybe_prg: which::Result<PathBuf>) -> Result<(), DrtError> {
     match maybe_prg {
         Ok(prg_path) => {
-            println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(prg_path.to_string_lossy()));
+            println!(
+                "{} {}",
+                Yellow.paint("WOULD: run "),
+                Yellow.paint(prg_path.to_string_lossy())
+            );
             Ok(())
         }
-        Err(e) => { 
-            println!("{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string()));
+        Err(e) => {
+            println!(
+                "{} {}",
+                Red.paint("Not Executable: "),
+                Red.paint(e.to_string())
+            );
             Err(DrtError::Warn)
         }
     }
 }
 fn execute_inactive(cmd: &str) -> Result<(), DrtError> {
-	let parts: Vec<&str> = cmd.split(' ').collect();
+    let parts: Vec<&str> = cmd.split(' ').collect();
     let prg = Path::new(parts[0]);
     exectable_full_path(which::which(prg))
 }
-fn execute_active(cmd: &str)  -> Result<(), DrtError> {
-	let parts: Vec<&str> = cmd.split(' ').collect();
-	let output = Command::new(parts[0])
-		.args(&parts[1..])
-		.output()
-		.expect("cmd failed");
-    println!("{} {}", Green.paint("LIVE: run "), Green.paint(cmd) );
-	io::stdout().write_all(&output.stdout).expect("error writing to stdout");
+fn execute_active(cmd: &str) -> Result<(), DrtError> {
+    let parts: Vec<&str> = cmd.split(' ').collect();
+    let output = Command::new(parts[0])
+        .args(&parts[1..])
+        .output()
+        .expect("cmd failed");
+    println!("{} {}", Green.paint("LIVE: run "), Green.paint(cmd));
+    io::stdout()
+        .write_all(&output.stdout)
+        .expect("error writing to stdout");
     match output.status.code() {
         Some(n) => {
             if n == 0 {
-                println!("{} {}", Green.paint("status code: "), Green.paint(n.to_string()));
+                println!(
+                    "{} {}",
+                    Green.paint("status code: "),
+                    Green.paint(n.to_string())
+                );
             } else {
-                println!("{} {}", Yellow.paint("status code: "), Red.paint(n.to_string()));
+                println!(
+                    "{} {}",
+                    Yellow.paint("status code: "),
+                    Red.paint(n.to_string())
+                );
             }
             Ok(())
-        },
+        }
         None => {
             println!("{}", Red.paint("Teminated without status code: "));
             Err(DrtError::Warn)
@@ -157,23 +173,20 @@ fn execute_active(cmd: &str)  -> Result<(), DrtError> {
     }
 }
 fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
-	match ask(&format!("run (y/n): {}", cmd)) {
-		'n' => {
-            println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd) );
+    match ask(&format!("run (y/n): {}", cmd)) {
+        'n' => {
+            println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd));
             Err(DrtError::Warn)
-        },
-		'y' => execute_active(cmd),
-		_ => execute_interactive(cmd)
-	}
+        }
+        'y' => execute_active(cmd),
+        _ => execute_interactive(cmd),
+    }
 }
-fn execute(
-    mode: Mode,
-    cmd: &str
-) -> Result<(), DrtError> {
+fn execute(mode: Mode, cmd: &str) -> Result<(), DrtError> {
     match mode {
         Mode::Interactive => execute_interactive(cmd),
-        Mode::Passive => execute_inactive(cmd), 
-        Mode::Active=> execute_active(cmd)
+        Mode::Passive => execute_inactive(cmd),
+        Mode::Active => execute_active(cmd),
     }
 }
 
@@ -181,28 +194,29 @@ fn do_action<'g>(
     mode: Mode,
     vars: &'g HashMap<&'g str, &'g str>,
     action: Action,
-) -> Result<(), Error> {
+) -> Result<(), DrtError> {
     match action {
         Action::Template(template_file_name, output_file_name) => {
             let template_file = SrcFile::new(PathBuf::from(template_file_name));
             let output_file = DestFile::new(PathBuf::from(output_file_name));
 
-            process_template_file(mode, &vars, &template_file, &output_file)?;
-            Ok(())
+            match process_template_file(mode, &vars, &template_file, &output_file) {
+                Err(_) => Err(DrtError::Error),
+                _ => Ok(())
+            }
         },
         Action::Execute(cmd) => {
             let the_cmd = match replace_line(vars, cmd.clone())? {
                 Some(new_cmd) => new_cmd,
-                None => cmd
-			};
-			match execute(mode, &the_cmd) {
-				Ok(()) => Ok(()),
-				Err(drt_error) => Err(Error::new(ErrorKind::Other, format!("{:?}", drt_error)))
+                None => cmd,
+            };
+            match execute(mode, &the_cmd) {
+                Ok(()) => Ok(()),
+                Err(drt_error) => Err(drt_error),
             }
         },
-        Action::None => {
-            Ok(())
-        }
+        Action::Error => { Err(DrtError::Error)},
+        Action::None => Ok(()),
     }
 }
 
@@ -210,13 +224,28 @@ fn do_action<'g>(
 fn test_do_action() {
     let mut vars: HashMap<&str, &str> = HashMap::new();
     vars.insert("value", "unit_test");
-    let template = Action::Template( String::from("template/test.config"), String::from("template/out.config"));
+    let template = Action::Template(
+        String::from("template/test.config"),
+        String::from("template/out.config"),
+    );
     match do_action(Mode::Passive, &vars, template) {
-        Ok(_) =>  {}
-        Err(e) => panic!("{}", e)
+        Ok(_) => {}
+        Err(_) => std::process::exit(1),
     }
 }
-
+fn expect_option<R>(a: Option<R>, emsg: &str) -> Result<R, DrtError> {
+    match a {
+        Some(r) => Ok(r),
+        None => {
+            println!(
+                "{}",
+                Red.paint(emsg)
+            );
+            Err(DrtError::Warn)
+        }
+    }
+    
+}
 fn main() {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -233,13 +262,22 @@ fn main() {
         return;
     }
     if matches.opt_present("debug") {
-        SimpleLogger::new().with_level(LevelFilter::Trace).init().expect("log inti error");
+        SimpleLogger::new()
+            .with_level(LevelFilter::Trace)
+            .init()
+            .expect("log inti error");
     } else {
-        SimpleLogger::new().with_level(LevelFilter::Warn).init().expect("log inti error");
+        SimpleLogger::new()
+            .with_level(LevelFilter::Warn)
+            .init()
+            .expect("log inti error");
     }
     let drt_active_env = env::var("DRT_ACTIVE").is_ok();
     if drt_active_env {
-        debug!("DRT_ACTIVE enabled DRT_ACTIVE= {:#?}", env::var("DRT_ACTIVE").unwrap());
+        debug!(
+            "DRT_ACTIVE enabled DRT_ACTIVE= {:#?}",
+            env::var("DRT_ACTIVE").unwrap()
+        );
     } else {
         debug!("DRT_ACTIVE not set");
     }
@@ -252,44 +290,61 @@ fn main() {
     };
     let mut vars: HashMap<&str, &str> = HashMap::new();
     {
-        let mut input_list:Iter<String>= matches.free.iter(); 
-        while let Some(input) =  input_list.next() {
-            let t:Type = parse_type(input);
-			let mut cmd = String::new();
+        let mut input_list: Iter<String> = matches.free.iter();
+        while let Some(input) = input_list.next() {
+            let t: Type = parse_type(input);
+            let mut cmd = String::new();
             let action = match t {
                 Type::Template => {
-                    let infile = String::from(input_list.next().expect("expected template: tp template output"));
-                    let outfile = String::from(input_list.next().expect("expected output: tp template output"));
+                    let infile = String::from(
+                        input_list
+                            .next()
+                            .expect("expected template: tp template output"),
+                    );
+                    let outfile = String::from(
+                        input_list
+                            .next()
+                            .expect("expected output: tp template output"),
+                    );
                     Action::Template(infile, outfile)
-                },
-                Type::Variable=> {
-                    let key = input_list.next().expect("expected key: v key value");
-                    let val = input_list.next().expect("expected value: v key value");
-                    vars.insert(key,val);
-                    Action::None
-                },
+                }
+                Type::Variable => {
+                    match expect_option(input_list.next(), "expected key: v key value") {
+                        Ok(k) => {
+                            match expect_option(input_list.next(), "expected value: v key value") {
+                                Ok(v) => {
+                                    vars.insert(k, v);
+                                    Action::None
+                                },
+                                Err(_) => Action::Error
+                            }
+                        },
+                        Err(_) => Action::Error
+                    }
+                }
                 Type::Execute => {
-					#[allow(clippy::while_let_on_iterator)]
-        			while let Some(input) = input_list.next() {
-						if cmd.is_empty() {
-							cmd.push_str(&input.to_string());
-						} else {
-							cmd.push_str(" ");
-							cmd.push_str(&input.to_string());
-						}
-					}
-					//let cmd_str: &str = cmd.as_str();
+                    #[allow(clippy::while_let_on_iterator)]
+                    while let Some(input) = input_list.next() {
+                        if cmd.is_empty() {
+                            cmd.push_str(&input.to_string());
+                        } else {
+                            cmd.push_str(" ");
+                            cmd.push_str(&input.to_string());
+                        }
+                    }
+                    //let cmd_str: &str = cmd.as_str();
                     Action::Execute(cmd)
-                },
+                }
                 Type::Unknown => {
-                    panic!("Unknown type: {}", input);
+                    println!("{} {}", Red.paint("Unknown type:"), Red.paint(input));
+                    Action::Error
                 }
             };
             //debug!("vars {:#?}", &vars);
             debug!("action {:#?}", action);
             match do_action(mode, &vars, action) {
                 Ok(a) => a,
-                Err(e) => { 
+                Err(e) => {
                     println!("{}", e);
                 }
             }

@@ -1,59 +1,57 @@
+use ansi_term::Colour::{Green, Yellow, Red};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
 use drt::userinput::ask;
+use drt::DestFile;
+use drt::GenFile;
 use drt::Mode;
 use drt::SrcFile;
-use drt::GenFile;
-use regex::Regex;
+use log::debug;
+use log::trace;
 use regex::Match;
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error;
-use std::io::ErrorKind;
-use std::process::Command;
-use log::trace;
-use drt::DestFile;
 use std::ops::Range;
-use log::debug;
-use ansi_term::Colour::{Green, Yellow};
+use std::process::Command;
+use drt::DrtError;
 
 #[test]
 fn test_regex() {
-    match match_line(String::from("a@@foo@@").as_str()) { 
-        Some(("foo",_)) => {}, 
-        Some((_,_)) => panic!("fail"), 
-        None => panic!("expected Template") 
+    match match_line(String::from("a@@foo@@").as_str()) {
+        Some(("foo", _)) => {}
+        Some((_, _)) => panic!("fail"),
+        None => panic!("expected Template"),
     }
-    match match_line(String::from("@@foo@@a").as_str()) { 
-        Some(("foo",_)) => {}, 
-        Some((_,_)) => panic!("fail"), 
-        None => panic!("expected Template") 
+    match match_line(String::from("@@foo@@a").as_str()) {
+        Some(("foo", _)) => {}
+        Some((_, _)) => panic!("fail"),
+        None => panic!("expected Template"),
     }
-    match match_line(String::from("@@foo@@").as_str()) { 
-        Some(("foo",_)) => {}, 
-        Some((_,_)) => panic!("fail"), 
-        None => panic!("expected Template") 
+    match match_line(String::from("@@foo@@").as_str()) {
+        Some(("foo", _)) => {}
+        Some((_, _)) => panic!("fail"),
+        None => panic!("expected Template"),
     }
 }
-fn match_line<'a>(line: &'a str) -> Option<(&'a str,Range<usize>)> {
+fn match_line<'a>(line: &'a str) -> Option<(&'a str, Range<usize>)> {
     let re = Regex::new(r"@@(?P<k>[A-Za-z0-9_\.-]*)@@").unwrap();
     match re.captures(line) {
         Some(cap) => {
             let all: Match = cap.get(0).unwrap();
             let k: Match = cap.name("k").unwrap();
             let key = k.as_str();
-            Some( (key, all.range()) )
+            Some((key, all.range()))
         }
-        None => None
+        None => None,
     }
 }
-pub fn replace_line( 
-    vars: & HashMap<&str, &str>,
-    line: String) -> Result<Option<String>,Error> { 
+pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<Option<String>, DrtError> {
     match match_line(line.as_str()) {
-        Some((key,range)) => {
+        Some((key, range)) => {
             let mut new_line: String = String::new();
             let v = vars.get(key);
             trace!("key {}", key);
@@ -72,19 +70,22 @@ pub fn replace_line(
                 //writeln!(tmpfile, "{}", after).expect("write failed");
                 Ok(Some(new_line))
             } else {
-                Err(Error::new(ErrorKind::Other, format!("warn: variable NOT FOUND {}", key)))
+                println!("{} {}", 
+                    Red.paint("warn: variable NOT FOUND"), 
+                    Red.paint(key));
+                Err(DrtError::Warn)
             }
-        },
-        None => Ok(None)
+        }
+        None => Ok(None),
     }
 }
 // creates the tmp file for comparing to the dest file
 pub fn generate_recommended_file<'a, 'b>(
     vars: &'a HashMap<&str, &str>,
-    template: &'b SrcFile
-) -> Result<GenFile, Error> {
+    template: &'b SrcFile,
+) -> Result<GenFile, DrtError> {
     let gen = GenFile::new();
-
+    let mut error_count = 0;
     let infile: Result<File, Error> = template.open();
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
     let reader = BufReader::new(infile.unwrap());
@@ -92,30 +93,32 @@ pub fn generate_recommended_file<'a, 'b>(
     for maybe_line in reader.lines() {
         let line: String = maybe_line.unwrap();
         match replace_line(vars, line.clone()) {
-            Ok(maybe_new_line) => {
-                match maybe_new_line {
-                    Some(new_line) => {
-                        writeln!(tmpfile, "{}", new_line).expect("write failed");
-                    },
-                    None => {
-                            trace!("no vars in line {:?}", line);
-                            writeln!(tmpfile, "{}", line).expect("Cannot write to tmp file");
-                    }
+            Ok(maybe_line) => match maybe_line {
+                Some(new_line) => {
+                    writeln!(tmpfile, "{}", new_line).expect("write failed");
+                }
+                None => {
+                    trace!("no vars in line {:?}", line);
+                    writeln!(tmpfile, "{}", line).expect("Cannot write to tmp file");
                 }
             },
-            Err(e) => {
-                panic!(e);
-            }, 
+            Err(_) => {
+                error_count += 1;
+            }
         }
     }
-    Ok(gen)
+    if error_count == 0 {
+        Ok(gen)
+    } else {
+        Err(DrtError::Error)
+    }
 }
 
 fn merge(mode: Mode, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
     match mode {
         Mode::Interactive => merge_interactive(template, gen, dest),
         Mode::Passive => merge_passive(template, gen, dest),
-        Mode::Active=> merge_active(template, gen, dest),
+        Mode::Active => merge_active(template, gen, dest),
     }
 }
 fn merge_passive(_template: &SrcFile, path: &GenFile, path2: &DestFile) -> bool {
@@ -124,7 +127,11 @@ fn merge_passive(_template: &SrcFile, path: &GenFile, path2: &DestFile) -> bool 
         .arg(path2)
         .status()
         .expect("failed to execute process");
-    println!("{} {}", Yellow.paint("WOULD: modify "), Yellow.paint(path2.to_string()) );
+    println!(
+        "{} {}",
+        Yellow.paint("WOULD: modify "),
+        Yellow.paint(path2.to_string())
+    );
     println!("with: {}", status);
     status.success()
 }
@@ -136,7 +143,11 @@ fn merge_active(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bool {
         .status()
         .expect("failed to execute process");
 
-    println!("{} {}", Green.paint("LIVE: modify "), Green.paint(dest.to_string()) );
+    println!(
+        "{} {}",
+        Green.paint("LIVE: modify "),
+        Green.paint(dest.to_string())
+    );
     println!("with: {}", status);
     status.success()
 }
@@ -162,14 +173,23 @@ fn merge_interactive(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bo
     println!("with: {}", status);
     status.success()
 }
-pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, dest: &'f DestFile) -> Result<DiffStatus, Error> {
+pub fn create_from<'f>(
+    mode: Mode,
+    template: &'f SrcFile,
+    gen: &'f GenFile,
+    dest: &'f DestFile,
+) -> Result<DiffStatus, DrtError> {
     trace!("dest {:?}", dest);
     dest.mkdirs();
     trace!("create_from");
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
-            println!("{} {}", Yellow.paint("NO CHANGE: "), Yellow.paint(dest.to_string()) );
+            println!(
+                "{} {}",
+                Yellow.paint("NO CHANGE: "),
+                Yellow.paint(dest.to_string())
+            );
             Ok(DiffStatus::NoChanges)
         }
         DiffStatus::Failed => {
@@ -180,9 +200,9 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
             debug!("create '{}'", dest);
             debug!("cp {:?} {:?}", gen, dest);
             match mode {
-                Mode::Passive =>  create_passive(gen, dest)?,
+                Mode::Passive => create_passive(gen, dest)?,
                 Mode::Active => copy_active(gen, dest)?,
-                Mode::Interactive => copy_interactive(gen, dest)?
+                Mode::Interactive => copy_interactive(gen, dest)?,
             };
             Ok(DiffStatus::NewFile)
         }
@@ -191,13 +211,15 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
                 Mode::Passive => 'd',
                 Mode::Active => 'o',
                 Mode::Interactive => ask(
-                    &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate", "files don't match", 
-                        gen, 
-                        dest))
+                    &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate", "files don't match", gen, dest))
             };
             match ans {
                 'd' => {
-                    println!("{} {}", Yellow.paint("WOULD: modify"), Yellow.paint(dest.to_string()) );
+                    println!(
+                        "{} {}",
+                        Yellow.paint("WOULD: modify"),
+                        Yellow.paint(dest.to_string())
+                    );
                     for ch in difftext {
                         print!("{}", ch as char)
                     }
@@ -208,35 +230,46 @@ pub fn create_from<'f>( mode: Mode, template: &'f SrcFile, gen: &'f GenFile, des
                 't' => {
                     let _status_code = merge_into_template(template, gen, dest);
                     let _status = diff(&gen.path(), &dest.path());
-                    create_from(mode, template, &gen, dest).expect("cannot create dest from template");
+                    create_from(mode, template, &gen, dest)
+                        .expect("cannot create dest from template");
                 }
                 'm' => {
                     let _status_code = merge(mode, template, gen, dest);
                     let _status = diff(&gen.path(), &dest.path());
-                    create_from(Mode::Interactive, template, &gen, dest).expect("cannot create dest from template");
+                    create_from(Mode::Interactive, template, &gen, dest)
+                        .expect("cannot create dest from template");
                 }
                 'o' => {
                     copy_active(gen, dest).expect("copy failed");
                 }
                 _ => {
-                    create_from(mode, template, &gen, dest).expect("cannot create dest from template");
+                    create_from(mode, template, &gen, dest)
+                        .expect("cannot create dest from template");
                 }
             }
             Ok(diff(&gen.path(), &dest.path()))
         }
     }
 }
-fn create_passive(_path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("{} {}", Yellow.paint("WOULD: create "), Yellow.paint(path2.to_string()) );
+fn create_passive(_path: &GenFile, path2: &DestFile) -> Result<(), DrtError> {
+    println!(
+        "{} {}",
+        Yellow.paint("WOULD: create "),
+        Yellow.paint(path2.to_string())
+    );
     // TODO: check if we can write to path2
     Ok(())
 }
-fn copy_active(path: &GenFile, path2: &DestFile) -> Result<(), Error> {
-    println!("{} {}", Green.paint("LIVE: create "), Green.paint(path2.to_string()) );
+fn copy_active(path: &GenFile, path2: &DestFile) -> Result<(), DrtError> {
+    println!(
+        "{} {}",
+        Green.paint("LIVE: create "),
+        Green.paint(path2.to_string())
+    );
     std::fs::copy(path.path(), path2.path()).expect("create_from: copy failed:");
     Ok(())
 }
-fn copy_interactive(path: &GenFile, path2: &DestFile) -> Result<(), Error> {
+fn copy_interactive(path: &GenFile, path2: &DestFile) -> Result<(), DrtError> {
     let status = Command::new("cp")
         .arg("-i")
         .arg(path)

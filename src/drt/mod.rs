@@ -5,21 +5,21 @@ pub mod fs;
 pub mod properties;
 pub mod template;
 pub mod userinput;
+use drt::fs::create_dir;
+use log::trace;
+use std::ffi::OsStr;
+use std::fmt;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Error;
 use std::path::Path;
 use std::path::PathBuf;
-use std::fs::File;
-use std::fs::OpenOptions;
-use log::trace;
-use std::fmt;
-use std::ffi::OsStr;
-use drt::fs::create_dir;
 
 #[derive(Clone, Copy)]
 pub enum Mode {
     Active,
     Passive,
-    Interactive
+    Interactive,
 }
 #[derive(Debug)]
 pub struct SrcFile {
@@ -33,10 +33,10 @@ impl SrcFile {
     pub fn open(&self) -> Result<File, Error> {
         trace!("open path {:?}", self.path);
         OpenOptions::new()
-        .read(true)
-        .write(false)
-        .create(false)
-        .open(&self.path)
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(&self.path)
     }
 }
 
@@ -51,13 +51,13 @@ impl DestFile {
     pub fn exists(&self) -> bool {
         self.path.exists()
     }
-    pub fn path(&self) -> & Path {
+    pub fn path(&self) -> &Path {
         self.path.as_path()
     }
     pub fn mkdirs(&self) {
-	let dir = self.path.parent();
-	trace!("dest dir {:?}", dir);
-	create_dir(dir);
+        let dir = self.path.parent();
+        trace!("dest dir {:?}", dir);
+        create_dir(dir);
     }
 }
 #[derive(Debug)]
@@ -66,18 +66,20 @@ pub struct GenFile {
 }
 impl GenFile {
     pub fn new() -> GenFile {
-        GenFile { file: tempfile::NamedTempFile::new().unwrap()}
+        GenFile {
+            file: tempfile::NamedTempFile::new().unwrap(),
+        }
     }
-    pub fn open(&self) -> & File {
+    pub fn open(&self) -> &File {
         self.file.as_file()
     }
-    pub fn path(&self) -> & Path {
+    pub fn path(&self) -> &Path {
         self.file.path()
     }
 }
 
 impl Default for GenFile {
-    fn default() -> Self { 
+    fn default() -> Self {
         GenFile::new()
     }
 }
@@ -114,3 +116,25 @@ impl AsRef<OsStr> for GenFile {
         self.path().as_os_str()
     }
 }
+
+
+#[derive(Debug)]
+pub enum DrtError {
+    Error,
+    Warn,
+}
+impl fmt::Display for DrtError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for DrtError {
+    fn description(&self) -> &str {
+        match *self {
+            DrtError::Warn => "Warning(s)",
+            DrtError::Error => "Error(s)",
+        }
+    }
+}
+

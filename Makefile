@@ -5,10 +5,12 @@ drt_installed=drt
 drt=${drt_local}
 default: test
 
+
+
 er:
-	${drt_local} foo
-	${drt_local} v
-	${drt_local} v x
+	${drt} foo ||true
+	${drt} v||true
+	${drt} v x||true
 passive:
 	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) v value real_value t template/test.config template/out.config
@@ -78,5 +80,4 @@ install:
 d:
 	./demo.sh
 
-slapd:
-	${drt_local} t openldap/slapd.conf /tmp/slapd.conf
+tests: er passive active interactive x x_active active_env x_interactive xvar cmd 
