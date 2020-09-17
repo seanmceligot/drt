@@ -18,7 +18,7 @@ mod drt;
 use ansi_term::Colour::{Green, Red, Yellow};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
-use drt::template::{create_from, generate_recommended_file, replace_line};
+use drt::template::{create_from, generate_recommended_file, replace_line, ChangeString};
 use drt::userinput::ask;
 use drt::DestFile;
 use drt::GenFile;
@@ -37,12 +37,13 @@ fn create_or_diff(
     dest: &DestFile,
     gen: &GenFile,
 ) -> Result<DiffStatus, DrtError> {
-    if dest.exists() {
-        debug!("create_or_diff: diff");
-        diff(gen.path(), dest.path());
-        create_from(mode, template, gen, dest)
-    } else {
-        create_from(mode, template, gen, dest)
+    debug!("create_or_diff: diff");
+    diff(gen.path(), dest.path());
+    match create_from(mode, template, gen, dest) {
+        Ok(_) => {
+            Ok(diff(gen.path(), dest.path()))
+        },
+        Err(e) => Err(e)
     }
 }
 fn print_usage(program: &str, opts: Options) {
@@ -110,7 +111,10 @@ fn process_template_file<'t>(
 #[test]
 fn test_execute_active() -> Result<(), DrtError> {
     execute_active("/bin/true")?;
-    execute_active("/bin/false")?;
+    match execute_active("/bin/false") {
+        Err(e) => println!( "{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string())),
+        _ => return Err(DrtError::Error)
+    }
     execute_active("echo echo_ping")?;
     Ok(())
 }
@@ -125,12 +129,8 @@ fn exectable_full_path(maybe_prg: which::Result<PathBuf>) -> Result<(), DrtError
             Ok(())
         }
         Err(e) => {
-            println!(
-                "{} {}",
-                Red.paint("Not Executable: "),
-                Red.paint(e.to_string())
-            );
-            Err(DrtError::Warn)
+            println!( "{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string()));
+            Err(DrtError::CommandNotFound)
         }
     }
 }
@@ -157,18 +157,13 @@ fn execute_active(cmd: &str) -> Result<(), DrtError> {
                     Green.paint("status code: "),
                     Green.paint(n.to_string())
                 );
+                Ok(())
             } else {
-                println!(
-                    "{} {}",
-                    Yellow.paint("status code: "),
-                    Red.paint(n.to_string())
-                );
+                Err(DrtError::NotZeroExit(n))
             }
-            Ok(())
         }
         None => {
-            println!("{}", Red.paint("Teminated without status code: "));
-            Err(DrtError::Warn)
+            Err(DrtError::CmdExitedPrematurely)
         }
     }
 }
@@ -176,7 +171,7 @@ fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
     match ask(&format!("run (y/n): {}", cmd)) {
         'n' => {
             println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd));
-            Err(DrtError::Warn)
+            Ok(())
         }
         'y' => execute_active(cmd),
         _ => execute_interactive(cmd),
@@ -198,21 +193,27 @@ fn do_action<'g>(
     match action {
         Action::Template(template_file_name, output_file_name) => {
             let template_file = SrcFile::new(PathBuf::from(template_file_name));
-            let output_file = DestFile::new(PathBuf::from(output_file_name));
+            let output_file = DestFile::new(mode, PathBuf::from(output_file_name));
 
             match process_template_file(mode, &vars, &template_file, &output_file) {
-                Err(_) => Err(DrtError::Error),
+                Err(e) => {
+                    println!("do_action: {} {}", Red.paint("error:"), Red.paint(e.to_string()));
+                    Err(e)
+                }
                 _ => Ok(())
             }
         },
         Action::Execute(cmd) => {
             let the_cmd = match replace_line(vars, cmd.clone())? {
-                Some(new_cmd) => new_cmd,
-                None => cmd,
+                ChangeString::Changed(new_cmd) => new_cmd,
+                ChangeString::Unchanged => cmd,
             };
             match execute(mode, &the_cmd) {
                 Ok(()) => Ok(()),
-                Err(drt_error) => Err(drt_error),
+                Err(e) => {
+                    println!("do_action: {} {}", Red.paint("error:"), Red.paint(e.to_string()));
+                    Err(e)
+                }
             }
         },
         Action::Error => { Err(DrtError::Error)},
@@ -319,7 +320,10 @@ fn main() {
                                 Err(_) => Action::Error
                             }
                         },
-                        Err(_) => Action::Error
+                        Err(e) => {
+                            println!("Variable: {} {}", Red.paint("error:"), Red.paint(e.to_string()));
+                            Action::Error
+                        }
                     }
                 }
                 Type::Execute => {
@@ -344,9 +348,7 @@ fn main() {
             debug!("action {:#?}", action);
             match do_action(mode, &vars, action) {
                 Ok(a) => a,
-                Err(e) => {
-                    println!("{}", e);
-                }
+                Err(_) => std::process::exit(1),
             }
         }
     }

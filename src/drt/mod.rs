@@ -1,4 +1,5 @@
 extern crate tempfile;
+extern crate thiserror;
 
 pub mod diff;
 pub mod fs;
@@ -11,11 +12,11 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::Error;
 use std::path::Path;
 use std::path::PathBuf;
+use self::thiserror::Error;
 
-#[derive(Clone, Copy)]
+#[derive(Debug,Clone, Copy)]
 pub enum Mode {
     Active,
     Passive,
@@ -30,7 +31,7 @@ impl SrcFile {
     pub fn new(p: PathBuf) -> SrcFile {
         SrcFile { path: p }
     }
-    pub fn open(&self) -> Result<File, Error> {
+    pub fn open(&self) -> Result<File, std::io::Error> {
         trace!("open path {:?}", self.path);
         OpenOptions::new()
             .read(true)
@@ -42,22 +43,23 @@ impl SrcFile {
 
 #[derive(Debug)]
 pub struct DestFile {
+    mode: Mode,
     path: PathBuf,
 }
 impl DestFile {
-    pub fn new(p: PathBuf) -> DestFile {
-        DestFile { path: p }
+    pub fn new(m: Mode, p: PathBuf) -> DestFile {
+        DestFile { mode: m, path: p }
     }
-    pub fn exists(&self) -> bool {
+    pub fn _exists(&self) -> bool {
         self.path.exists()
     }
     pub fn path(&self) -> &Path {
         self.path.as_path()
     }
-    pub fn mkdirs(&self) {
+    pub fn mkdirs(&self) -> Option<&Path> {
         let dir = self.path.parent();
         trace!("dest dir {:?}", dir);
-        create_dir(dir);
+        create_dir(self.mode, dir)
     }
 }
 #[derive(Debug)]
@@ -117,13 +119,25 @@ impl AsRef<OsStr> for GenFile {
     }
 }
 
-
-#[derive(Debug)]
+#[non_exhaustive]
+#[derive(Error, Debug)]
 pub enum DrtError {
+    #[error("Error(s)")]
     Error,
+    #[error("Warnings")]
     Warn,
+    #[error("Variable not found {0}")]
+    VarNotFound(String),
+    #[error("Key not found {0}")]
+    KeyNotFound(String),
+    #[error("Teminated without status code: ")]
+    CmdExitedPrematurely,
+    #[error("Non zero exit status code {0} ")]
+    NotZeroExit(i32),
+    #[error("Command not found")]
+    CommandNotFound,
 }
-impl fmt::Display for DrtError {
+/*impl fmt::Display for DrtError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -137,4 +151,4 @@ impl std::error::Error for DrtError {
         }
     }
 }
-
+*/

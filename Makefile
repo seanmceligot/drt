@@ -1,15 +1,23 @@
 
+drt_local=cargo run --bin drt --
 drt_local=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
-drt=cargo run --bin drt --
 drt_installed=drt
 drt=${drt_local}
 default: test
 
 
+impossible:
+	$(drt) t drt.sh /boot/foo/deleteme
 
-er:
+err_no_command: 
+	$(drt) x fjdksfjsdlkj
+err_notset:
+	$(drt) --active v no_value fake_value t template/test.config template/out.config
+er_invalid_command:
 	${drt} foo ||true
+err_novar:
 	${drt} v||true
+err_noval:
 	${drt} v x||true
 passive:
 	$(drt) --active v value fake_value t template/test.config template/out.config
@@ -80,4 +88,4 @@ install:
 d:
 	./demo.sh
 
-tests: er passive active interactive x x_active active_env x_interactive xvar cmd 
+tests: passive active interactive x x_active active_env x_interactive xvar cmd 
