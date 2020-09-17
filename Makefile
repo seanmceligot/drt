@@ -9,10 +9,12 @@ default: test
 impossible:
 	$(drt) t drt.sh /boot/foo/deleteme
 
+errs: err_no_command err_notset er_invalid_command err_novar err_noval
+
 err_no_command: 
-	$(drt) x fjdksfjsdlkj
+	$(drt) x fjdksfjsdlkj || true
 err_notset:
-	$(drt) --active v no_value fake_value t template/test.config template/out.config
+	$(drt) --active v no_value fake_value t template/test.config template/out.config||true
 er_invalid_command:
 	${drt} foo ||true
 err_novar:

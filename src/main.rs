@@ -18,7 +18,7 @@ mod drt;
 use ansi_term::Colour::{Green, Red, Yellow};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
-use drt::template::{create_from, generate_recommended_file, replace_line, ChangeString};
+use drt::template::{update_from_template, generate_recommended_file, replace_line, ChangeString};
 use drt::userinput::ask;
 use drt::DestFile;
 use drt::GenFile;
@@ -39,7 +39,7 @@ fn create_or_diff(
 ) -> Result<DiffStatus, DrtError> {
     debug!("create_or_diff: diff");
     diff(gen.path(), dest.path());
-    match create_from(mode, template, gen, dest) {
+    match update_from_template(mode, template, gen, dest) {
         Ok(_) => {
             Ok(diff(gen.path(), dest.path()))
         },

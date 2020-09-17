@@ -128,8 +128,6 @@ pub enum DrtError {
     Warn,
     #[error("Variable not found {0}")]
     VarNotFound(String),
-    #[error("Key not found {0}")]
-    KeyNotFound(String),
     #[error("Teminated without status code: ")]
     CmdExitedPrematurely,
     #[error("Non zero exit status code {0} ")]

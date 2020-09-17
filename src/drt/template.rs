@@ -1,3 +1,4 @@
+extern crate tempfile;
 use ansi_term::Colour::{Green, Yellow, Red};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
@@ -18,6 +19,7 @@ use std::io::Error;
 use std::ops::Range;
 use std::process::Command;
 use drt::DrtError;
+
 
 #[test]
 fn test_regex() {
@@ -117,24 +119,24 @@ fn merge(mode: Mode, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool
         Mode::Active => merge_active(template, gen, dest),
     }
 }
-fn merge_passive(_template: &SrcFile, path: &GenFile, path2: &DestFile) -> bool {
+fn merge_passive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
     let status = Command::new("diff")
-        .arg(path)
-        .arg(path2)
+        .arg(gen)
+        .arg(dest)
         .status()
         .expect("failed to execute process");
     println!(
         "{} {}",
         Yellow.paint("WOULD: modify "),
-        Yellow.paint(path2.to_string())
+        Yellow.paint(dest.to_string())
     );
     println!("with: {}", status);
     status.success()
 }
-fn merge_active(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bool {
+fn merge_active(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
     let status = Command::new("cp")
         .arg("-v")
-        .arg(path)
+        .arg(gen)
         .arg(dest)
         .status()
         .expect("failed to execute process");
@@ -147,7 +149,7 @@ fn merge_active(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bool {
     println!("with: {}", status);
     status.success()
 }
-fn merge_into_template(template: &SrcFile, _path: &GenFile, dest: &DestFile) -> bool {
+fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> bool {
     let status = Command::new("vim")
         .arg("-d")
         .arg(dest)
@@ -158,10 +160,10 @@ fn merge_into_template(template: &SrcFile, _path: &GenFile, dest: &DestFile) -> 
     println!("with: {}", status);
     status.success()
 }
-fn merge_interactive(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bool {
+fn merge_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
     let status = Command::new("vim")
         .arg("-d")
-        .arg(path)
+        .arg(gen)
         .arg(dest)
         .status()
         .expect("failed to execute process");
@@ -169,7 +171,51 @@ fn merge_interactive(_template: &SrcFile, path: &GenFile, dest: &DestFile) -> bo
     println!("with: {}", status);
     status.success()
 }
-pub fn create_from<'f>(
+fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), DrtError> { 
+    print_template_command(Yellow, "WOULD", template, gen, dest);
+    for ch in difftext { print!("{}", ch as char) }
+    Ok(())
+}
+fn print_template_command(color: ansi_term::Colour, verb: &'static str, template: &SrcFile, gen: &GenFile, dest : &DestFile) {
+    println!(
+        "{}: {} {} [{}]  ->{}",
+        color.paint(verb),
+        color.paint("create from template"),
+        color.paint(template.to_string()),
+        color.paint(gen.to_string()),
+        color.paint(dest.to_string())
+    );
+}
+fn update_from_template_active(template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
+    copy_active(gen, dest, template)
+}
+fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
+    let ans = ask( &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / s(k)ip / (d)iff / merge to (t)emplate", "files don't match", gen, dest));
+    match ans {
+        'd' => {
+            update_from_template_passive(difftext, template, gen, dest)
+        }
+        'k' => {
+            print_template_command(Yellow, "SKIP", template, gen, dest);
+            Ok(())
+        }
+        't' => {
+            merge_into_template(template, gen, dest);
+            Ok(())
+        }
+        'm' => {
+            merge(Mode::Interactive, template, gen, dest);
+            Ok(())
+        }
+        'o' => {
+            copy_active(gen, dest, template)
+        }
+        _ => {
+            update_from_template(Mode::Interactive, template, &gen, dest)
+        }
+    }
+}
+pub fn update_from_template<'f>(
     mode: Mode,
     template: &'f SrcFile,
     gen: &'f GenFile,
@@ -177,15 +223,11 @@ pub fn create_from<'f>(
 ) -> Result<(), DrtError> {
     trace!("dest {:?}", dest);
     dest.mkdirs();
-    trace!("create_from");
+    trace!("update_from_template");
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
-            println!(
-                "{} {}",
-                Yellow.paint("NO CHANGE: "),
-                Yellow.paint(dest.to_string())
-            );
+            println!( "{} {}", Yellow.paint("NO CHANGE: "), Yellow.paint(dest.to_string()));
             Ok(())
         }
         DiffStatus::Failed => {
@@ -202,71 +244,29 @@ pub fn create_from<'f>(
             }
         }
         DiffStatus::Changed(difftext) => {
-            let ans = match mode {
-                Mode::Passive => 'd',
-                Mode::Active => 'o',
-                Mode::Interactive => ask(
-                    &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate", "files don't match", gen, dest))
-            };
-            match ans {
-                'd' => {
-                    println!(
-                        "{} {}",
-                        Yellow.paint("WOULD: modify"),
-                        Yellow.paint(dest.to_string())
-                    );
-                    for ch in difftext {
-                        print!("{}", ch as char)
-                    }
-                    Ok(())
-                }
-                'c' => {
-                    println!("skipping cp {} {}", gen, dest);
-                    Ok(())
-                }
-                't' => {
-                    merge_into_template(template, gen, dest);
-                    Ok(())
-                }
-                'm' => {
-                    merge(mode, template, gen, dest);
-                    Ok(())
-                }
-                'o' => {
-                    copy_active(gen, dest, template)
-                }
-                _ => {
-                    create_from(mode, template, &gen, dest)
-                }
+            match mode {
+                Mode::Passive =>update_from_template_passive(difftext, template, gen, dest), 
+                Mode::Active =>update_from_template_active(template, gen, dest), 
+                Mode::Interactive => update_from_template_interactive(difftext, template, gen, dest)
             }
         }
     }
 }
-fn create_passive(path: &GenFile, path2: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
+fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
+    print_template_command(Yellow, "WOULD", template, gen, dest);
     println!(
         "{} {} [{}]  ->{}",
         Yellow.paint("WOULD: create from template"),
         Yellow.paint(template.to_string()),
-        Yellow.paint(path.to_string()),
-        Yellow.paint(path2.to_string())
+        Yellow.paint(gen.to_string()),
+        Yellow.paint(dest.to_string())
     );
-    // TODO: check if we can write to path2
+    // TODO: check if we can write to dest
     Ok(())
 }
-fn copy_active(path: &GenFile, path2: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    println!(
-        "{} {} [{}]  ->{}",
-        Yellow.paint("LIVE: create from template"),
-        Yellow.paint(template.to_string()),
-        Yellow.paint(path.to_string()),
-        Yellow.paint(path2.to_string())
-    );
-    println!(
-        "{} {}",
-        Green.paint("LIVE: create "),
-        Green.paint(path2.to_string())
-    );
-    match std::fs::copy(path.path(), path2.path()) {
+fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
+    print_template_command(Green, "LIVE", template, gen, dest);
+    match std::fs::copy(gen.path(), dest.path()) {
         Err(e) => {
             println!("{} {}", 
                 Red.paint("error: copy failed"), 
@@ -277,13 +277,13 @@ fn copy_active(path: &GenFile, path2: &DestFile, template: &SrcFile) -> Result<(
         Ok(_) => Ok(())
     }
 }
-fn copy_interactive(path: &GenFile, path2: &DestFile, _template: &SrcFile) -> Result<(), DrtError> {
+fn copy_interactive(gen: &GenFile, dest: &DestFile, _template: &SrcFile) -> Result<(), DrtError> {
     // TODO: add vimdiff support
     // TODO: use ask and copy_passive
     let status = Command::new("cp")
         .arg("-i")
-        .arg(path)
-        .arg(path2)
+        .arg(gen)
+        .arg(dest)
         .status()
         .expect("failed to execute process");
 
@@ -291,6 +291,6 @@ fn copy_interactive(path: &GenFile, path2: &DestFile, _template: &SrcFile) -> Re
     if status.success() {
         Ok(())
     } else {
-        panic!("cp failed: {:?} -> {:?}", path, path2)
+        panic!("cp failed: {:?} -> {:?}", gen, dest)
     }
 }
