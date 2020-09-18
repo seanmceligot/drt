@@ -6,7 +6,6 @@ pub mod fs;
 pub mod properties;
 pub mod template;
 pub mod userinput;
-use drt::fs::create_dir;
 use log::trace;
 use std::ffi::OsStr;
 use std::fmt;
@@ -55,11 +54,6 @@ impl DestFile {
     }
     pub fn path(&self) -> &Path {
         self.path.as_path()
-    }
-    pub fn mkdirs(&self) -> Option<&Path> {
-        let dir = self.path.parent();
-        trace!("dest dir {:?}", dir);
-        create_dir(self.mode, dir)
     }
 }
 #[derive(Debug)]

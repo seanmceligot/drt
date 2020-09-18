@@ -19,6 +19,7 @@ use std::io::Error;
 use std::ops::Range;
 use std::process::Command;
 use drt::DrtError;
+use drt::fs::create_dir;
 
 
 #[test]
@@ -66,14 +67,11 @@ pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeSt
             let before: &str = &line[..range.start];
             let after: &str = &line[range.end..];
             new_line.push_str(before);
-            //write!(tmpfile, "{}", before).expect("write failed");
 
             if let Some(value) = v {
                 new_line.push_str(value);
                 new_line.push_str(after);
                 new_line.push('\n');
-                //write!(tmpfile, "{}", value).expect("write failed");
-                //writeln!(tmpfile, "{}", after).expect("write failed");
                 Ok(ChangeString::Changed(new_line))
             } else {
                 Err(DrtError::VarNotFound(String::from(key)))
@@ -222,7 +220,7 @@ pub fn update_from_template<'f>(
     dest: &'f DestFile,
 ) -> Result<(), DrtError> {
     trace!("dest {:?}", dest);
-    dest.mkdirs();
+    create_dir(mode, dest.path.parent());
     trace!("update_from_template");
     let status = diff(gen.path(), dest.path());
     match status {
