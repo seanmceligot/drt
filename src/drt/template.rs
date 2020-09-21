@@ -1,12 +1,10 @@
 extern crate tempfile;
-use ansi_term::Colour::{Green, Yellow, Red};
+use ansi_term::Colour::{Yellow, Red};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
 use drt::userinput::ask;
-use drt::DestFile;
-use drt::GenFile;
+use drt::{DestFile,GenFile,SrcFile};
 use drt::Mode;
-use drt::SrcFile;
 use log::debug;
 use log::trace;
 use regex::Match;
@@ -18,9 +16,12 @@ use std::io::BufReader;
 use std::io::Error;
 use std::ops::Range;
 use std::process::Command;
-use drt::DrtError;
+use drt::err::DrtError;
 use drt::fs::create_dir;
-
+use drt::err::{log_template_action};
+use drt::err::Verb::{WOULD,LIVE,SKIPPED};
+use drt::cmd::exectable_full_path;
+use std::path::PathBuf;
 
 #[test]
 fn test_regex() {
@@ -110,43 +111,6 @@ pub fn generate_recommended_file<'a, 'b>(
     Ok(gen)
 }
 
-fn merge(mode: Mode, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
-    match mode {
-        Mode::Interactive => merge_interactive(template, gen, dest),
-        Mode::Passive => merge_passive(template, gen, dest),
-        Mode::Active => merge_active(template, gen, dest),
-    }
-}
-fn merge_passive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
-    let status = Command::new("diff")
-        .arg(gen)
-        .arg(dest)
-        .status()
-        .expect("failed to execute process");
-    println!(
-        "{} {}",
-        Yellow.paint("WOULD: modify "),
-        Yellow.paint(dest.to_string())
-    );
-    println!("with: {}", status);
-    status.success()
-}
-fn merge_active(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
-    let status = Command::new("cp")
-        .arg("-v")
-        .arg(gen)
-        .arg(dest)
-        .status()
-        .expect("failed to execute process");
-
-    println!(
-        "{} {}",
-        Green.paint("LIVE: modify "),
-        Green.paint(dest.to_string())
-    );
-    println!("with: {}", status);
-    status.success()
-}
 fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> bool {
     let status = Command::new("vim")
         .arg("-d")
@@ -158,31 +122,32 @@ fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> b
     println!("with: {}", status);
     status.success()
 }
-fn merge_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> bool {
-    let status = Command::new("vim")
-        .arg("-d")
-        .arg(gen)
-        .arg(dest)
-        .status()
-        .expect("failed to execute process");
-
-    println!("with: {}", status);
-    status.success()
+fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<i32, DrtError> {
+	let exe = String::from("vim");
+    let real_exe : PathBuf = exectable_full_path(&exe)?;
+	let mut cmd1 = Command::new(real_exe);
+	let cmd = cmd1.arg("-d").arg(gen).arg(dest);
+    let r = cmd.status();
+    match r {
+		Err(ioe) => {
+			match ioe.kind() {
+				std::io::ErrorKind::NotFound => Err(DrtError::CommandNotFound(exe)),
+				_ => Err(DrtError::IoError(ioe))
+			}
+		},
+		Ok(status) => {
+			match status.code() {
+				None => Err(DrtError::CmdExitedPrematurely),
+				Some(n) => Ok(n)
+			}
+		}
+    }
 }
+
 fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), DrtError> { 
-    print_template_command(Yellow, "WOULD", template, gen, dest);
+    log_template_action("create from template", WOULD, template, gen, dest);
     for ch in difftext { print!("{}", ch as char) }
     Ok(())
-}
-fn print_template_command(color: ansi_term::Colour, verb: &'static str, template: &SrcFile, gen: &GenFile, dest : &DestFile) {
-    println!(
-        "{}: {} {} [{}]  ->{}",
-        color.paint(verb),
-        color.paint("create from template"),
-        color.paint(template.to_string()),
-        color.paint(gen.to_string()),
-        color.paint(dest.to_string())
-    );
 }
 fn update_from_template_active(template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
     copy_active(gen, dest, template)
@@ -194,7 +159,7 @@ fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: 
             update_from_template_passive(difftext, template, gen, dest)
         }
         'k' => {
-            print_template_command(Yellow, "SKIP", template, gen, dest);
+            log_template_action("create from template", SKIPPED, template, gen, dest);
             Ok(())
         }
         't' => {
@@ -202,8 +167,7 @@ fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: 
             Ok(())
         }
         'm' => {
-            merge(Mode::Interactive, template, gen, dest);
-            Ok(())
+			merge_to_template_interactive(template, gen, dest).map(|_status_code| ())
         }
         'o' => {
             copy_active(gen, dest, template)
@@ -251,19 +215,12 @@ pub fn update_from_template<'f>(
     }
 }
 fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    print_template_command(Yellow, "WOULD", template, gen, dest);
-    println!(
-        "{} {} [{}]  ->{}",
-        Yellow.paint("WOULD: create from template"),
-        Yellow.paint(template.to_string()),
-        Yellow.paint(gen.to_string()),
-        Yellow.paint(dest.to_string())
-    );
+    log_template_action("create from template", WOULD, template, gen, dest);
     // TODO: check if we can write to dest
     Ok(())
 }
 fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    print_template_command(Green, "LIVE", template, gen, dest);
+    log_template_action("create from template", LIVE, template, gen, dest);
     match std::fs::copy(gen.path(), dest.path()) {
         Err(e) => {
             println!("{} {}", 

@@ -1,11 +1,12 @@
 extern crate tempfile;
-extern crate thiserror;
 
 pub mod diff;
 pub mod fs;
 pub mod properties;
 pub mod template;
 pub mod userinput;
+pub mod err;
+pub mod cmd;
 use log::trace;
 use std::ffi::OsStr;
 use std::fmt;
@@ -13,7 +14,6 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::path::PathBuf;
-use self::thiserror::Error;
 
 #[derive(Debug,Clone, Copy)]
 pub enum Mode {
@@ -112,35 +112,3 @@ impl AsRef<OsStr> for GenFile {
         self.path().as_os_str()
     }
 }
-
-#[non_exhaustive]
-#[derive(Error, Debug)]
-pub enum DrtError {
-    #[error("Error(s)")]
-    Error,
-    #[error("Warnings")]
-    Warn,
-    #[error("Variable not found {0}")]
-    VarNotFound(String),
-    #[error("Teminated without status code: ")]
-    CmdExitedPrematurely,
-    #[error("Non zero exit status code {0} ")]
-    NotZeroExit(i32),
-    #[error("Command not found")]
-    CommandNotFound,
-}
-/*impl fmt::Display for DrtError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for DrtError {
-    fn description(&self) -> &str {
-        match *self {
-            DrtError::Warn => "Warning(s)",
-            DrtError::Error => "Error(s)",
-        }
-    }
-}
-*/

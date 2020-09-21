@@ -5,7 +5,8 @@ drt_installed=drt
 drt=${drt_local}
 default: test
 
-
+fix_unsafe:
+	cargo fix --allow-dirty --allow-staged
 impossible:
 	$(drt) t drt.sh /boot/foo/deleteme
 

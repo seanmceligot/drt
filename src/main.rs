@@ -6,15 +6,14 @@ extern crate glob;
 extern crate regex;
 extern crate simple_logger;
 extern crate tempfile;
-extern crate which;
+
+mod drt;
 
 use getopts::Options;
 use std::collections::HashMap;
 use std::env;
-use std::path::Path;
 use std::path::PathBuf;
 use std::str;
-mod drt;
 use ansi_term::Colour::{Green, Red, Yellow};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
@@ -23,13 +22,14 @@ use drt::userinput::ask;
 use drt::DestFile;
 use drt::GenFile;
 use drt::Mode;
-use drt::DrtError;
+use drt::err::DrtError;
 use drt::SrcFile;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use std::io::{self, Write};
 use std::process::Command;
 use std::slice::Iter;
+use drt::cmd::exectable_full_path;
 
 fn create_or_diff(
     mode: Mode,
@@ -118,26 +118,9 @@ fn test_execute_active() -> Result<(), DrtError> {
     execute_active("echo echo_ping")?;
     Ok(())
 }
-fn exectable_full_path(maybe_prg: which::Result<PathBuf>) -> Result<(), DrtError> {
-    match maybe_prg {
-        Ok(prg_path) => {
-            println!(
-                "{} {}",
-                Yellow.paint("WOULD: run "),
-                Yellow.paint(prg_path.to_string_lossy())
-            );
-            Ok(())
-        }
-        Err(e) => {
-            println!( "{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string()));
-            Err(DrtError::CommandNotFound)
-        }
-    }
-}
-fn execute_inactive(cmd: &str) -> Result<(), DrtError> {
+fn execute_inactive(cmd: &str) -> Result<PathBuf, DrtError> {
     let parts: Vec<&str> = cmd.split(' ').collect();
-    let prg = Path::new(parts[0]);
-    exectable_full_path(which::which(prg))
+    exectable_full_path(parts[0])
 }
 fn execute_active(cmd: &str) -> Result<(), DrtError> {
     let parts: Vec<&str> = cmd.split(' ').collect();
@@ -180,7 +163,7 @@ fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
 fn execute(mode: Mode, cmd: &str) -> Result<(), DrtError> {
     match mode {
         Mode::Interactive => execute_interactive(cmd),
-        Mode::Passive => execute_inactive(cmd),
+        Mode::Passive => execute_inactive(cmd).map(|_pathbuf|()),
         Mode::Active => execute_active(cmd),
     }
 }
