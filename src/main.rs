@@ -9,27 +9,31 @@ extern crate tempfile;
 
 mod drt;
 
-use getopts::Options;
-use std::collections::HashMap;
-use std::env;
-use std::path::PathBuf;
-use std::str;
 use ansi_term::Colour::{Green, Red, Yellow};
+use drt::cmd::exectable_full_path;
+use drt::cmd::cmdline;
+use drt::DestFile;
 use drt::diff::diff;
 use drt::diff::DiffStatus;
-use drt::template::{update_from_template, generate_recommended_file, replace_line, ChangeString};
-use drt::userinput::ask;
-use drt::DestFile;
+use drt::err::DrtError;
+use drt::err::log_cmd_action;
+use drt::err::Verb;
 use drt::GenFile;
 use drt::Mode;
-use drt::err::DrtError;
 use drt::SrcFile;
+use drt::template::{update_from_template, generate_recommended_file, replace_line, ChangeString};
+use drt::userinput::ask;
+use getopts::Options;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use std::collections::HashMap;
+use std::env;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::Command;
 use std::slice::Iter;
-use drt::cmd::exectable_full_path;
+use std::str;
+use log::trace;
 
 fn create_or_diff(
     mode: Mode,
@@ -118,9 +122,27 @@ fn test_execute_active() -> Result<(), DrtError> {
     execute_active("echo echo_ping")?;
     Ok(())
 }
-fn execute_inactive(cmd: &str) -> Result<PathBuf, DrtError> {
-    let parts: Vec<&str> = cmd.split(' ').collect();
-    exectable_full_path(parts[0])
+
+fn execute_inactive(raw_cmd: &str) -> Result<(), DrtError> {
+	let empty_vec: Vec<&str> = Vec::new();
+	let v: Vec<&str> = raw_cmd.split(' ').collect();
+	let (cmd,args) : (&str, Vec<&str>) = match v.as_slice() {
+		[] => ("", empty_vec),
+		//[cmd] => (cmd, empty_vec),
+		[cmd, args @ ..] => (cmd, args.to_vec()),
+	};
+	match cmd {
+		"" => Err(DrtError::ExpectedArg("x command")),
+		_ => {
+		trace!("{}", cmd);
+		let exe_path = exectable_full_path(cmd)?;
+		trace!("{:?}", exe_path);
+		trace!("{:?}", args);
+		let cli = cmdline(exe_path.display().to_string(), args);
+		log_cmd_action("run", Verb::WOULD, cli);
+		Ok(())
+		}
+	}
 }
 fn execute_active(cmd: &str) -> Result<(), DrtError> {
     let parts: Vec<&str> = cmd.split(' ').collect();

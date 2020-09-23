@@ -5,7 +5,6 @@ use ansi_term::Colour;
 use drt::{DestFile,GenFile,SrcFile};
 use std::fmt;
 use std::fmt::Debug;
-use std::borrow::Cow;
 use std::path::Path;
 
 #[non_exhaustive]
@@ -31,6 +30,9 @@ pub enum DrtError {
 
     #[error("Command not found {0}")]
     CommandNotFound(String),
+    
+    #[error("Expected argument: {0}")]
+    ExpectedArg(&'static str),
     
     #[error("Insufficient Privileges {0}")]
     InsufficientPrivileges(String),
@@ -70,12 +72,12 @@ pub fn log_template_action(action: &'static str, verb: Verb, template: &SrcFile,
         color.paint(dest.to_string())
     );
 }
-pub fn log_cmd_action(action: &'static str, verb: Verb, prg: Cow<str>) {
+pub fn log_cmd_action(action: &'static str, verb: Verb, cli: String) {
     let color: Colour = color_from_verb(verb); println!(
         "{}: {}: {}",
         color.paint(verb.to_string()),
         color.paint(action),
-        color.paint(prg),
+        color.paint(cli),
     );
 }
 pub fn log_path_action(action: &'static str, verb: Verb, path: &Path) {

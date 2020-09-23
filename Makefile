@@ -7,15 +7,13 @@ default: test
 
 fix_unsafe:
 	cargo fix --allow-dirty --allow-staged
-possible:
+t_mkdir:
 	$(drt) t drt.sh /tmp/deleteme
-impossible:
-	$(drt) t drt.sh /root/foo/deleteme
 
-errs: err_no_command err_notset er_invalid_command err_novar err_noval
+errs: err_no_command err_notset er_invalid_command err_novar err_noval err_t_deny
 
 err_no_command: 
-	$(drt) x fjdksfjsdlkj || true
+	$(drt) -- x lls -l || true
 err_notset:
 	$(drt) --active v no_value fake_value t template/test.config template/out.config||true
 er_invalid_command:
@@ -24,6 +22,9 @@ err_novar:
 	${drt} v||true
 err_noval:
 	${drt} v x||true
+err_t_deny:
+	$(drt) t drt.sh /root/foo/deleteme || true
+
 passive:
 	$(drt) --active v value fake_value t template/test.config template/out.config
 	$(drt) v value real_value t template/test.config template/out.config
@@ -93,4 +94,5 @@ install:
 d:
 	./demo.sh
 
-tests: passive active interactive x x_active active_env x_interactive xvar cmd 
+interactive: interactive x_interactive
+tests: passive active x x_active active_env xvar cmd 

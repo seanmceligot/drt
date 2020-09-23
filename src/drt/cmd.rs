@@ -2,8 +2,12 @@ extern crate which;
 
 use drt::err::DrtError;
 use std::path::PathBuf;
-use drt::err::Verb;
-use drt::err::log_cmd_action;
+
+pub fn cmdline(cmd: String, args: Vec<&str>) -> String {
+        let mut full = vec![cmd.as_str()];
+        full.append(&mut args.to_vec());
+        full.join(" ")
+}
 
 pub fn exectable_full_path(prg: &str) -> Result<PathBuf, DrtError> {
 	let maybe_prg: which::Result<PathBuf> = which::which(prg);
@@ -12,7 +16,6 @@ pub fn exectable_full_path(prg: &str) -> Result<PathBuf, DrtError> {
 fn exectable_full_path_which(prg: &str, maybe_prg: which::Result<PathBuf>) -> Result<PathBuf, DrtError> {
     match maybe_prg {
         Ok(prg_path) => {
-            log_cmd_action("run", Verb::WOULD, prg_path.to_string_lossy());
             Ok(prg_path)
         }
         Err(_e) => {
