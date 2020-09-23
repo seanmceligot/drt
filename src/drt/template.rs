@@ -1,27 +1,29 @@
 extern crate tempfile;
 use ansi_term::Colour::{Yellow, Red};
+use drt::cmd::exectable_full_path;
+use drt::{DestFile,GenFile,SrcFile};
 use drt::diff::diff;
 use drt::diff::DiffStatus;
-use drt::userinput::ask;
-use drt::{DestFile,GenFile,SrcFile};
+use drt::err::DrtError;
+use drt::err::{log_template_action};
+use drt::err::Verb::{WOULD,LIVE,SKIPPED};
+use drt::fs::create_dir_maybe;
+use drt::fs::can_create_dir_maybe;
 use drt::Mode;
+use drt::userinput::ask;
 use log::debug;
 use log::trace;
 use regex::Match;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error;
+use std::io::prelude::*;
 use std::ops::Range;
-use std::process::Command;
-use drt::err::DrtError;
-use drt::fs::create_dir;
-use drt::err::{log_template_action};
-use drt::err::Verb::{WOULD,LIVE,SKIPPED};
-use drt::cmd::exectable_full_path;
 use std::path::PathBuf;
+use std::process::Command;
+use std::process::ExitStatus;
 
 #[test]
 fn test_regex() {
@@ -122,26 +124,22 @@ fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> b
     println!("with: {}", status);
     status.success()
 }
-fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<i32, DrtError> {
+fn exit_status_to_drt_error( r: std::io::Result<ExitStatus> ) -> Result<(), DrtError> {
+    match r {
+		Err(ioe) => Err(DrtError::IoError(ioe)),
+		Ok(status) => {
+			match status.code() {
+				None => Err(DrtError::CmdExitedPrematurely),
+				Some(_status_code) => Ok(()) }
+		}
+    }
+}
+fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
 	let exe = String::from("vim");
     let real_exe : PathBuf = exectable_full_path(&exe)?;
 	let mut cmd1 = Command::new(real_exe);
 	let cmd = cmd1.arg("-d").arg(gen).arg(dest);
-    let r = cmd.status();
-    match r {
-		Err(ioe) => {
-			match ioe.kind() {
-				std::io::ErrorKind::NotFound => Err(DrtError::CommandNotFound(exe)),
-				_ => Err(DrtError::IoError(ioe))
-			}
-		},
-		Ok(status) => {
-			match status.code() {
-				None => Err(DrtError::CmdExitedPrematurely),
-				Some(n) => Ok(n)
-			}
-		}
-    }
+    exit_status_to_drt_error(cmd.status())
 }
 
 fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), DrtError> { 
@@ -183,9 +181,8 @@ pub fn update_from_template<'f>(
     gen: &'f GenFile,
     dest: &'f DestFile,
 ) -> Result<(), DrtError> {
-    trace!("dest {:?}", dest);
-    create_dir(mode, dest.path.parent());
     trace!("update_from_template");
+    trace!("dest {:?}", dest);
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
@@ -215,21 +212,31 @@ pub fn update_from_template<'f>(
     }
 }
 fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    log_template_action("create from template", WOULD, template, gen, dest);
-    // TODO: check if we can write to dest
-    Ok(())
+    match can_create_dir_maybe(dest.path.parent()) {
+        Err(_e) => Err(DrtError::InsufficientPrivileges(dest.to_string())),
+        Ok(_) => {
+            log_template_action("create from template", WOULD, template, gen, dest);
+            Ok(())
+        }
+   }
 }
 fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    log_template_action("create from template", LIVE, template, gen, dest);
-    match std::fs::copy(gen.path(), dest.path()) {
-        Err(e) => {
-            println!("{} {}", 
-                Red.paint("error: copy failed"), 
-                Red.paint(e.to_string())
-            );
-            Err(DrtError::Error)
+    match create_dir_maybe(Mode::Active, dest.path.parent()) {
+        Err(DrtError::PathNotFound0) => Err(DrtError::InsufficientPrivileges(dest.to_string())),
+        Err(e) => Err(e),
+        Ok(_dir) => {
+            log_template_action("create from template", LIVE, template, gen, dest);
+            match std::fs::copy(gen.path(), dest.path()) {
+                Err(e) => {
+                    println!("{} {}", 
+                        Red.paint("error: copy failed"), 
+                        Red.paint(e.to_string())
+                    );
+                    Err(DrtError::Error)
+                }
+                Ok(_) => Ok(())
+            }
         }
-        Ok(_) => Ok(())
     }
 }
 fn copy_interactive(gen: &GenFile, dest: &DestFile, _template: &SrcFile) -> Result<(), DrtError> {

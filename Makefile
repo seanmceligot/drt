@@ -7,8 +7,10 @@ default: test
 
 fix_unsafe:
 	cargo fix --allow-dirty --allow-staged
+possible:
+	$(drt) t drt.sh /tmp/deleteme
 impossible:
-	$(drt) t drt.sh /boot/foo/deleteme
+	$(drt) t drt.sh /root/foo/deleteme
 
 errs: err_no_command err_notset er_invalid_command err_novar err_noval
 

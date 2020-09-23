@@ -6,6 +6,7 @@ use drt::{DestFile,GenFile,SrcFile};
 use std::fmt;
 use std::fmt::Debug;
 use std::borrow::Cow;
+use std::path::Path;
 
 #[non_exhaustive]
 #[derive(Error, Debug)]
@@ -19,7 +20,7 @@ pub enum DrtError {
     #[error("Variable not found {0}")]
     VarNotFound(String),
 
-    #[error("Teminated without status code: ")]
+    #[error("Terminated without status code: ")]
     CmdExitedPrematurely,
 
     #[error("Non zero exit status code {0} ")]
@@ -30,6 +31,15 @@ pub enum DrtError {
 
     #[error("Command not found {0}")]
     CommandNotFound(String),
+    
+    #[error("Insufficient Privileges {0}")]
+    InsufficientPrivileges(String),
+    
+    // #[error("Path not found {0}")]
+    // PathNotFound(String),
+    
+    #[error("Path not found")]
+    PathNotFound0,
 }
 #[derive(Debug,Copy,Clone)]
 pub enum Verb {
@@ -66,5 +76,13 @@ pub fn log_cmd_action(action: &'static str, verb: Verb, prg: Cow<str>) {
         color.paint(verb.to_string()),
         color.paint(action),
         color.paint(prg),
+    );
+}
+pub fn log_path_action(action: &'static str, verb: Verb, path: &Path) {
+    let color: Colour = color_from_verb(verb); println!(
+        "{}: {}: {}",
+        color.paint(verb.to_string()),
+        color.paint(action),
+        color.paint(path.display().to_string()),
     );
 }
