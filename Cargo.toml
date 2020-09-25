@@ -16,6 +16,10 @@ which = "*"
 thiserror = "*"
 libc="*"
 
+[dev-dependencies]
+assert_cmd = "1.0.1"
+predicates = "1.0.0"
+
 [lib]
 name = "drt"
 path = "src/lib.rs"

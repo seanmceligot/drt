@@ -1,12 +1,13 @@
 
 drt_local=cargo run --bin drt --
-drt_local=RUST_BACKTRACE=1 cargo run --bin drt -- --debug
+drt_local=RUST_BACKTRACE=full cargo run --bin drt -- --debug
 drt_installed=drt
 drt=${drt_local}
 default: test
 
-fix_unsafe:
-	cargo fix --allow-dirty --allow-staged
+fix:
+	cargo fix
+
 t_mkdir:
 	$(drt) t drt.sh /tmp/deleteme
 
@@ -22,7 +23,7 @@ err_novar:
 	${drt} v||true
 err_noval:
 	${drt} v x||true
-err_t_deny:
+err_t_deny_mkdir:
 	$(drt) t drt.sh /root/foo/deleteme || true
 
 passive:
