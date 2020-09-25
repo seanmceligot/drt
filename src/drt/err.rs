@@ -26,7 +26,7 @@ pub enum DrtError {
     NotZeroExit(i32),
 
     #[error("Io Error {0}")]
-    IoError(std::io::Error),
+    IoError(#[from] std::io::Error),
 
     #[error("Command not found {0}")]
     CommandNotFound(String),

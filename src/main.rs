@@ -91,7 +91,6 @@ fn test_parse_type() {
         _ => panic!("expected Template"),
     }
 }
-
 fn parse_type(input: &str) -> Type {
     match input {
         "t" => Type::Template,
@@ -358,3 +357,5 @@ fn main() {
         }
     }
 }
+
+

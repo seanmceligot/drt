@@ -9,6 +9,7 @@ use drt::err::{log_template_action};
 use drt::err::Verb::{WOULD,LIVE,SKIPPED};
 use drt::fs::create_dir_maybe;
 use drt::fs::can_create_dir_maybe;
+use drt::fs::can_write_file;
 use drt::Mode;
 use drt::userinput::ask;
 use log::debug;
@@ -183,6 +184,9 @@ pub fn update_from_template<'f>(
 ) -> Result<(), DrtError> {
     trace!("update_from_template");
     trace!("dest {:?}", dest);
+
+    can_write_file(dest.path())?;
+    
     let status = diff(gen.path(), dest.path());
     match status {
         DiffStatus::NoChanges => {
