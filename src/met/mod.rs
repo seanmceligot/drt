@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 extern crate tempfile;
 
 pub mod diff;
@@ -7,6 +8,7 @@ pub mod template;
 pub mod userinput;
 pub mod err;
 pub mod cmd;
+pub mod filter;
 use log::trace;
 use std::ffi::OsStr;
 use std::fmt;

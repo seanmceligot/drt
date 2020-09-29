@@ -1,6 +1,6 @@
 extern crate which;
 
-use drt::err::DrtError;
+use met::err::MetError;
 use std::path::PathBuf;
 
 pub fn cmdline(cmd: String, args: Vec<&str>) -> String {
@@ -9,17 +9,17 @@ pub fn cmdline(cmd: String, args: Vec<&str>) -> String {
         full.join(" ")
 }
 
-pub fn exectable_full_path(prg: &str) -> Result<PathBuf, DrtError> {
+pub fn exectable_full_path(prg: &str) -> Result<PathBuf, MetError> {
 	let maybe_prg: which::Result<PathBuf> = which::which(prg);
 	exectable_full_path_which(prg, maybe_prg)
 }
-fn exectable_full_path_which(prg: &str, maybe_prg: which::Result<PathBuf>) -> Result<PathBuf, DrtError> {
+fn exectable_full_path_which(prg: &str, maybe_prg: which::Result<PathBuf>) -> Result<PathBuf, MetError> {
     match maybe_prg {
         Ok(prg_path) => {
             Ok(prg_path)
         }
         Err(_e) => {
-            Err(DrtError::CommandNotFound(String::from(prg)))
+            Err(MetError::CommandNotFound(String::from(prg)))
         }
     }
 }

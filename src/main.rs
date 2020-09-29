@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 #[macro_use]
 extern crate log;
 extern crate ansi_term;
@@ -7,22 +8,25 @@ extern crate regex;
 extern crate simple_logger;
 extern crate tempfile;
 
-mod drt;
+mod met;
 
 use ansi_term::Colour::{Green, Red, Yellow};
-use drt::cmd::exectable_full_path;
-use drt::cmd::cmdline;
-use drt::DestFile;
-use drt::diff::diff;
-use drt::diff::DiffStatus;
-use drt::err::DrtError;
-use drt::err::log_cmd_action;
-use drt::err::Verb;
-use drt::GenFile;
-use drt::Mode;
-use drt::SrcFile;
-use drt::template::{update_from_template, generate_recommended_file, replace_line, ChangeString};
-use drt::userinput::ask;
+use met::cmd::exectable_full_path;
+use met::cmd::cmdline;
+use met::DestFile;
+use met::diff::diff;
+use met::diff::DiffStatus;
+use met::diff::create_or_diff;
+use met::err::MetError;
+use met::err::log_cmd_action;
+use met::err::Verb;
+use met::GenFile;
+use met::Mode;
+use met::SrcFile;
+use met::diff::{update_from_template};
+use met::template::{generate_recommended_file, replace_line, ChangeString};
+use met::filter::generate_filtered_file;
+use met::userinput::ask;
 use getopts::Options;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
@@ -35,21 +39,6 @@ use std::slice::Iter;
 use std::str;
 use log::trace;
 
-fn create_or_diff(
-    mode: Mode,
-    template: &SrcFile,
-    dest: &DestFile,
-    gen: &GenFile,
-) -> Result<DiffStatus, DrtError> {
-    debug!("create_or_diff: diff");
-    diff(gen.path(), dest.path());
-    match update_from_template(mode, template, gen, dest) {
-        Ok(_) => {
-            Ok(diff(gen.path(), dest.path()))
-        },
-        Err(e) => Err(e)
-    }
-}
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
     println!("{}", opts.usage(&brief));
@@ -61,7 +50,8 @@ fn print_usage(program: &str, opts: Options) {
     println!("-- x command -arg      run command (add -- to make sure hyphens are passed on");
 }
 #[derive(Debug)]
-enum Action {
+enum Action<'a> {
+    Filter(String, String, String, Vec<&'a String>),
     Template(String, String),
     Execute(String),
     Error,
@@ -69,6 +59,7 @@ enum Action {
 }
 #[derive(Debug)]
 enum Type {
+    Filter,
     Template,
     Execute,
     //InputFile,
@@ -82,6 +73,10 @@ fn test_parse_type() {
         Type::Template => {}
         _ => panic!("expected Template"),
     }
+    match parse_type(&String::from("f")) {
+        Type::Filter => {}
+        _ => panic!("expected Filter"),
+    }
     match parse_type(&String::from("x")) {
         Type::Execute => {}
         _ => panic!("expected Execute"),
@@ -93,6 +88,7 @@ fn test_parse_type() {
 }
 fn parse_type(input: &str) -> Type {
     match input {
+        "f" => Type::Filter,
         "t" => Type::Template,
         "x" => Type::Execute,
         "v" => Type::Variable,
@@ -102,27 +98,38 @@ fn parse_type(input: &str) -> Type {
         }
     }
 }
+fn process_filter_file<'t>(
+    mode: Mode,
+    vars: &'t HashMap<&'_ str, &'_ str>,
+    template: &SrcFile,
+    dest: &DestFile,
+    cmd: String,
+    args: Vec<&String>
+) -> Result<DiffStatus, MetError> {
+    let gen = generate_filtered_file(vars, template, cmd, args)?;
+    create_or_diff(mode, template, dest, &gen)
+}
 fn process_template_file<'t>(
     mode: Mode,
     vars: &'t HashMap<&'_ str, &'_ str>,
     template: &SrcFile,
     dest: &DestFile,
-) -> Result<DiffStatus, DrtError> {
+) -> Result<DiffStatus, MetError> {
     let gen = generate_recommended_file(vars, template)?;
     create_or_diff(mode, template, dest, &gen)
 }
 #[test]
-fn test_execute_active() -> Result<(), DrtError> {
+fn test_execute_active() -> Result<(), MetError> {
     execute_active("/bin/true")?;
     match execute_active("/bin/false") {
         Err(e) => println!( "{} {}", Red.paint("Not Executable: "), Red.paint(e.to_string())),
-        _ => return Err(DrtError::Error)
+        _ => return Err(MetError::Error)
     }
     execute_active("echo echo_ping")?;
     Ok(())
 }
 
-fn execute_inactive(raw_cmd: &str) -> Result<(), DrtError> {
+fn execute_inactive(raw_cmd: &str) -> Result<(), MetError> {
 	let empty_vec: Vec<&str> = Vec::new();
 	let v: Vec<&str> = raw_cmd.split(' ').collect();
 	let (cmd,args) : (&str, Vec<&str>) = match v.as_slice() {
@@ -131,7 +138,7 @@ fn execute_inactive(raw_cmd: &str) -> Result<(), DrtError> {
 		[cmd, args @ ..] => (cmd, args.to_vec()),
 	};
 	match cmd {
-		"" => Err(DrtError::ExpectedArg("x command")),
+		"" => Err(MetError::ExpectedArg("x command")),
 		_ => {
 		trace!("{}", cmd);
 		let exe_path = exectable_full_path(cmd)?;
@@ -143,7 +150,7 @@ fn execute_inactive(raw_cmd: &str) -> Result<(), DrtError> {
 		}
 	}
 }
-fn execute_active(cmd: &str) -> Result<(), DrtError> {
+fn execute_active(cmd: &str) -> Result<(), MetError> {
     let parts: Vec<&str> = cmd.split(' ').collect();
     let output = Command::new(parts[0])
         .args(&parts[1..])
@@ -163,15 +170,15 @@ fn execute_active(cmd: &str) -> Result<(), DrtError> {
                 );
                 Ok(())
             } else {
-                Err(DrtError::NotZeroExit(n))
+                Err(MetError::NotZeroExit(n))
             }
         }
         None => {
-            Err(DrtError::CmdExitedPrematurely)
+            Err(MetError::CmdExitedPrematurely)
         }
     }
 }
-fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
+fn execute_interactive(cmd: &str) -> Result<(), MetError> {
     match ask(&format!("run (y/n): {}", cmd)) {
         'n' => {
             println!("{} {}", Yellow.paint("WOULD: run "), Yellow.paint(cmd));
@@ -181,7 +188,7 @@ fn execute_interactive(cmd: &str) -> Result<(), DrtError> {
         _ => execute_interactive(cmd),
     }
 }
-fn execute(mode: Mode, cmd: &str) -> Result<(), DrtError> {
+fn execute(mode: Mode, cmd: &str) -> Result<(), MetError> {
     match mode {
         Mode::Interactive => execute_interactive(cmd),
         Mode::Passive => execute_inactive(cmd).map(|_pathbuf|()),
@@ -193,8 +200,20 @@ fn do_action<'g>(
     mode: Mode,
     vars: &'g HashMap<&'g str, &'g str>,
     action: Action,
-) -> Result<(), DrtError> {
+) -> Result<(), MetError> {
     match action {
+        Action::Filter(intput_file_name, output_file_name, cmd, args) => {
+            let intput_file = SrcFile::new(PathBuf::from(intput_file_name));
+            let output_file = DestFile::new(mode, PathBuf::from(output_file_name));
+
+            match process_filter_file(mode, &vars, &intput_file, &output_file, cmd, args) {
+                Err(e) => {
+                    println!("do_action: {} {}", Red.paint("error:"), Red.paint(e.to_string()));
+                    Err(e)
+                }
+                _ => Ok(())
+            }
+        },
         Action::Template(template_file_name, output_file_name) => {
             let template_file = SrcFile::new(PathBuf::from(template_file_name));
             let output_file = DestFile::new(mode, PathBuf::from(output_file_name));
@@ -220,7 +239,7 @@ fn do_action<'g>(
                 }
             }
         },
-        Action::Error => { Err(DrtError::Error)},
+        Action::Error => { Err(MetError::Error)},
         Action::None => Ok(()),
     }
 }
@@ -238,7 +257,7 @@ fn test_do_action() {
         Err(_) => std::process::exit(1),
     }
 }
-fn expect_option<R>(a: Option<R>, emsg: &str) -> Result<R, DrtError> {
+fn expect_option<R>(a: Option<R>, emsg: &str) -> Result<R, MetError> {
     match a {
         Some(r) => Ok(r),
         None => {
@@ -246,7 +265,7 @@ fn expect_option<R>(a: Option<R>, emsg: &str) -> Result<R, DrtError> {
                 "{}",
                 Red.paint(emsg)
             );
-            Err(DrtError::Warn)
+            Err(MetError::Warn)
         }
     }
     
@@ -277,28 +296,37 @@ fn main() {
             .init()
             .expect("log inti error");
     }
-    let drt_active_env = env::var("DRT_ACTIVE").is_ok();
-    if drt_active_env {
+    let met_active_env = env::var("MET_ACTIVE").is_ok();
+    if met_active_env {
         debug!(
-            "DRT_ACTIVE enabled DRT_ACTIVE= {:#?}",
-            env::var("DRT_ACTIVE").unwrap()
+            "MET_ACTIVE enabled MET_ACTIVE= {:#?}",
+            env::var("MET_ACTIVE").unwrap()
         );
     } else {
-        debug!("DRT_ACTIVE not set");
+        debug!("MET_ACTIVE not set");
     }
     let mode = if matches.opt_present("interactive") {
         Mode::Interactive
-    } else if matches.opt_present("active") | drt_active_env {
+    } else if matches.opt_present("active") | met_active_env {
         Mode::Active
     } else {
         Mode::Passive
     };
+	match config::Config::default().merge(config::File::with_name("met")).and_then(|cc|cc.merge(config::Environment::with_prefix("met"))) {
+		Err(e) => println!("err {:?}", e),
+		Ok(settings) =>  {
+			println!("property: {:?}", settings.get::<bool>("active"));
+		}
+	};
+
+		
     let mut vars: HashMap<&str, &str> = HashMap::new();
     {
         let mut input_list: Iter<String> = matches.free.iter();
         while let Some(input) = input_list.next() {
             let t: Type = parse_type(input);
             let mut cmd = String::new();
+            let mut cmdargs: Vec<&String> = Vec::new();
             let action = match t {
                 Type::Template => {
                     let infile = String::from(
@@ -312,6 +340,28 @@ fn main() {
                             .expect("expected output: tp template output"),
                     );
                     Action::Template(infile, outfile)
+                }
+                Type::Filter => {
+                    let infile = String::from(
+                        input_list
+                            .next()
+                            .expect("expected input file: f  input output cmd ..."),
+                    );
+                    let outfile = String::from(
+                        input_list
+                            .next()
+                            .expect("expected output file: f  input output cmd ..."),
+                    );
+                    let cmd = String::from(
+                        input_list
+                            .next()
+                            .expect("expected executable: f  input output cmd ..."),
+                    );
+                    while let Some(input) = input_list.next() {
+                        cmdargs.push(input)
+                    }
+                    //input_list.collect::<Vec<String>>().map(|s|cmdargs.)
+                    Action::Filter(infile, outfile, cmd, cmdargs)
                 }
                 Type::Variable => {
                     match expect_option(input_list.next(), "expected key: v key value") {

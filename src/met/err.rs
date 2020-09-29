@@ -2,14 +2,14 @@ extern crate thiserror;
 
 use self::thiserror::Error;
 use ansi_term::Colour;
-use drt::{DestFile,GenFile,SrcFile};
+use met::{DestFile,GenFile,SrcFile};
 use std::fmt;
 use std::fmt::Debug;
 use std::path::Path;
 
 #[non_exhaustive]
 #[derive(Error, Debug)]
-pub enum DrtError {
+pub enum MetError {
     #[error("Error(s)")]
     Error,
 

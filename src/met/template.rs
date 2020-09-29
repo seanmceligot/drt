@@ -1,18 +1,6 @@
 extern crate tempfile;
-use ansi_term::Colour::{Yellow, Red};
-use drt::cmd::exectable_full_path;
-use drt::{DestFile,GenFile,SrcFile};
-use drt::diff::diff;
-use drt::diff::DiffStatus;
-use drt::err::DrtError;
-use drt::err::{log_template_action};
-use drt::err::Verb::{WOULD,LIVE,SKIPPED};
-use drt::fs::create_dir_maybe;
-use drt::fs::can_create_dir_maybe;
-use drt::fs::can_write_file;
-use drt::Mode;
-use drt::userinput::ask;
-use log::debug;
+use met::{GenFile,SrcFile};
+use met::err::MetError;
 use log::trace;
 use regex::Match;
 use regex::Regex;
@@ -22,9 +10,6 @@ use std::io::BufReader;
 use std::io::Error;
 use std::io::prelude::*;
 use std::ops::Range;
-use std::path::PathBuf;
-use std::process::Command;
-use std::process::ExitStatus;
 
 #[test]
 fn test_regex() {
@@ -60,7 +45,7 @@ pub enum ChangeString {
     Changed(String),
     Unchanged,
 }
-pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeString, DrtError> {
+pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeString, MetError> {
     match match_line(line.as_str()) {
         Some((key, range)) => {
             let mut new_line: String = String::new();
@@ -78,7 +63,7 @@ pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeSt
                 new_line.push('\n');
                 Ok(ChangeString::Changed(new_line))
             } else {
-                Err(DrtError::VarNotFound(String::from(key)))
+                Err(MetError::VarNotFound(String::from(key)))
             }
         }
         None => Ok(ChangeString::Unchanged)
@@ -88,7 +73,7 @@ pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeSt
 pub fn generate_recommended_file<'a, 'b>(
     vars: &'a HashMap<&str, &str>,
     template: &'b SrcFile,
-) -> Result<GenFile, DrtError> {
+) -> Result<GenFile, MetError> {
     let gen = GenFile::new();
     let infile: Result<File, Error> = template.open();
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();
@@ -114,149 +99,3 @@ pub fn generate_recommended_file<'a, 'b>(
     Ok(gen)
 }
 
-fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> bool {
-    let status = Command::new("vim")
-        .arg("-d")
-        .arg(dest)
-        .arg(template)
-        .status()
-        .expect("failed to execute process");
-
-    println!("with: {}", status);
-    status.success()
-}
-fn exit_status_to_drt_error( r: std::io::Result<ExitStatus> ) -> Result<(), DrtError> {
-    match r {
-		Err(ioe) => Err(DrtError::IoError(ioe)),
-		Ok(status) => {
-			match status.code() {
-				None => Err(DrtError::CmdExitedPrematurely),
-				Some(_status_code) => Ok(()) }
-		}
-    }
-}
-fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
-	let exe = String::from("vim");
-    let real_exe : PathBuf = exectable_full_path(&exe)?;
-	let mut cmd1 = Command::new(real_exe);
-	let cmd = cmd1.arg("-d").arg(gen).arg(dest);
-    exit_status_to_drt_error(cmd.status())
-}
-
-fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), DrtError> { 
-    log_template_action("create from template", WOULD, template, gen, dest);
-    for ch in difftext { print!("{}", ch as char) }
-    Ok(())
-}
-fn update_from_template_active(template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
-    copy_active(gen, dest, template)
-}
-fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DrtError> {
-    let ans = ask( &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / s(k)ip / (d)iff / merge to (t)emplate", "files don't match", gen, dest));
-    match ans {
-        'd' => {
-            update_from_template_passive(difftext, template, gen, dest)
-        }
-        'k' => {
-            log_template_action("create from template", SKIPPED, template, gen, dest);
-            Ok(())
-        }
-        't' => {
-            merge_into_template(template, gen, dest);
-            Ok(())
-        }
-        'm' => {
-			merge_to_template_interactive(template, gen, dest).map(|_status_code| ())
-        }
-        'o' => {
-            copy_active(gen, dest, template)
-        }
-        _ => {
-            update_from_template(Mode::Interactive, template, &gen, dest)
-        }
-    }
-}
-pub fn update_from_template<'f>(
-    mode: Mode,
-    template: &'f SrcFile,
-    gen: &'f GenFile,
-    dest: &'f DestFile,
-) -> Result<(), DrtError> {
-    trace!("update_from_template");
-    trace!("dest {:?}", dest);
-
-    can_write_file(dest.path())?;
-    
-    let status = diff(gen.path(), dest.path());
-    match status {
-        DiffStatus::NoChanges => {
-            println!( "{} {}", Yellow.paint("NO CHANGE: "), Yellow.paint(dest.to_string()));
-            Ok(())
-        }
-        DiffStatus::Failed => {
-            debug!("diff failed '{}'", dest);
-            Err(DrtError::Error)
-        }
-        DiffStatus::NewFile => {
-            debug!("create '{}'", dest);
-            debug!("cp {:?} {:?}", gen, dest);
-            match mode {
-                Mode::Passive => create_passive(gen, dest, template),
-                Mode::Active => copy_active(gen, dest, template),
-                Mode::Interactive => copy_interactive(gen, dest, template),
-            }
-        }
-        DiffStatus::Changed(difftext) => {
-            match mode {
-                Mode::Passive =>update_from_template_passive(difftext, template, gen, dest), 
-                Mode::Active =>update_from_template_active(template, gen, dest), 
-                Mode::Interactive => update_from_template_interactive(difftext, template, gen, dest)
-            }
-        }
-    }
-}
-fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    match can_create_dir_maybe(dest.path.parent()) {
-        Err(_e) => Err(DrtError::InsufficientPrivileges(dest.to_string())),
-        Ok(_) => {
-            log_template_action("create from template", WOULD, template, gen, dest);
-            Ok(())
-        }
-   }
-}
-fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DrtError> {
-    match create_dir_maybe(Mode::Active, dest.path.parent()) {
-        Err(DrtError::PathNotFound0) => Err(DrtError::InsufficientPrivileges(dest.to_string())),
-        Err(e) => Err(e),
-        Ok(_dir) => {
-            log_template_action("create from template", LIVE, template, gen, dest);
-            match std::fs::copy(gen.path(), dest.path()) {
-                Err(e) => {
-                    println!("{} {}", 
-                        Red.paint("error: copy failed"), 
-                        Red.paint(e.to_string())
-                    );
-                    Err(DrtError::Error)
-                }
-                Ok(_) => Ok(())
-            }
-        }
-    }
-}
-fn copy_interactive(gen: &GenFile, dest: &DestFile, _template: &SrcFile) -> Result<(), DrtError> {
-    // TODO: add vimdiff support
-    // TODO: use ask and copy_passive
-    let status = Command::new("cp")
-        .arg("-i")
-        .arg(gen)
-        .arg(dest)
-        .status()
-        .expect("failed to execute process");
-
-    println!("with: {}", status);
-    if status.success() {
-        Ok(())
-    } else {
-        panic!("cp failed: {:?} -> {:?}", gen, dest)
-    }
-}

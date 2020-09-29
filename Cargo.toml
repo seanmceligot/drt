@@ -1,6 +1,7 @@
 [package]
-name = "drt"
-version = "0.5.0"
+name = "met"
+description = "Meticulous configuration"
+version = "0.6.0"
 authors = ["Sean McEligot <sean.mceligot@gmail.com>"]
 
 [dependencies]
@@ -15,16 +16,17 @@ ansi_term = "0.12"
 which = "*"
 thiserror = "*"
 libc="*"
+config = "*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
 predicates = "1.0.0"
 
 [lib]
-name = "drt"
+name = "met"
 path = "src/lib.rs"
 
 [[bin]]
-name = "drt"
+name = "met"
 path = "src/main.rs"
 
