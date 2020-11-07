@@ -1,6 +1,6 @@
 extern crate tempfile;
-use met::{GenFile,SrcFile};
-use met::err::MetError;
+use dryrun::{GenFile,SrcFile};
+use dryrun::err::DryRunError;
 use log::trace;
 use regex::Match;
 use regex::Regex;
@@ -45,7 +45,7 @@ pub enum ChangeString {
     Changed(String),
     Unchanged,
 }
-pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeString, MetError> {
+pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeString, DryRunError> {
     match match_line(line.as_str()) {
         Some((key, range)) => {
             let mut new_line: String = String::new();
@@ -63,7 +63,7 @@ pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeSt
                 new_line.push('\n');
                 Ok(ChangeString::Changed(new_line))
             } else {
-                Err(MetError::VarNotFound(String::from(key)))
+                Err(DryRunError::VarNotFound(String::from(key)))
             }
         }
         None => Ok(ChangeString::Unchanged)
@@ -73,7 +73,7 @@ pub fn replace_line(vars: &HashMap<&str, &str>, line: String) -> Result<ChangeSt
 pub fn generate_recommended_file<'a, 'b>(
     vars: &'a HashMap<&str, &str>,
     template: &'b SrcFile,
-) -> Result<GenFile, MetError> {
+) -> Result<GenFile, DryRunError> {
     let gen = GenFile::new();
     let infile: Result<File, Error> = template.open();
     //let re = Regex::new(r"^(?P<k>[[:alnum:]\._]*)=(?P<v>.*)").unwrap();

@@ -1,60 +1,60 @@
 
-met_local=cargo run --bin met --
-met_local=RUST_BACKTRACE=full cargo run --bin met -- --debug
-met_installed=met
-met=${met_local}
+dryrun_local=cargo run --bin dryrun --
+dryrun_local=RUST_BACKTRACE=full cargo run --bin dryrun -- --debug
+dryrun_installed=dryrun
+dryrun=${dryrun_local}
 default: test
 
 fix:
 	cargo fix
 
 t_mkdir:
-	$(met) t met.sh /tmp/deleteme
+	$(dryrun) t dryrun.sh /tmp/deleteme
 
 errs: err_no_command err_notset er_invalid_command err_novar err_noval err_t_deny
 
 err_no_command: 
-	$(met) -- x lls -l || true
+	$(dryrun) -- x lls -l || true
 err_notset:
-	$(met) --active v no_value fake_value t template/test.config template/out.config||true
+	$(dryrun) --active v no_value fake_value t template/test.config template/out.config||true
 er_invalid_command:
-	${met} foo ||true
+	${dryrun} foo ||true
 err_novar:
-	${met} v||true
+	${dryrun} v||true
 err_noval:
-	${met} v x||true
+	${dryrun} v x||true
 err_t_deny_mkdir:
-	$(met) t met.sh /root/foo/deleteme || true
+	$(dryrun) t dryrun.sh /root/foo/deleteme || true
 
 f:
-	$(met) v key1 val1 f template/test.config template/upper.out /usr/bin/tr 'a-z' 'A-Z'
-	$(met) --active v key1 val1 f template/test.config template/upper.out /usr/bin/tr 'a-z' 'A-Z'
+	$(dryrun) v key1 val1 f template/test.config template/upper.out /usr/bin/tr 'a-z' 'A-Z'
+	$(dryrun) --active v key1 val1 f template/test.config template/upper.out /usr/bin/tr 'a-z' 'A-Z'
 passive:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) v value real_value t template/test.config template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) v value real_value t template/test.config template/out.config
 active:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) --active v value real_value t template/test.config template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) --active v value real_value t template/test.config template/out.config
 interactive:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) --interactive v value real_value t template/test.config template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) --interactive v value real_value t template/test.config template/out.config
 
 x:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) x chmod 600 template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) x chmod 600 template/out.config
 x_active:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) --active x chmod 600 template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) --active x chmod 600 template/out.config
 
-active_env: MET_ACTIVE=1
+active_env: DRYRUN_ACTIVE=1
 active_env:
-	$(met) "--" x ls -l $(MAKE)
+	$(dryrun) "--" x ls -l $(MAKE)
 
 x_interactive:
-	$(met) --active v value fake_value t template/test.config template/out.config
-	$(met) --interactive x chmod 600 template/out.config
+	$(dryrun) --active v value fake_value t template/test.config template/out.config
+	$(dryrun) --interactive x chmod 600 template/out.config
 xvar:
-	$(met) v f template/out.config x chmod 600 @@f@@
+	$(dryrun) v f template/out.config x chmod 600 @@f@@
 create:
 	rm -vf template/out.config
 	$(MAKE) active	
@@ -63,7 +63,7 @@ test:  lint
 	RUST_BACKTRACE=1 cargo test
 
 help:
-	$(met) --help
+	$(dryrun) --help
 
 lint:
 	cargo clippy
@@ -80,10 +80,10 @@ build:
 
 noargs: 
 	echo cp out1/myconfig project/myconfig
-	$(met) --debug
+	$(dryrun) --debug
 
 cmd:
-	echo met v mode=600 if Makefile of /tmp/ cp %%if%% %%of%%
+	echo dryrun v mode=600 if Makefile of /tmp/ cp %%if%% %%of%%
 
 clean:
 	cargo clean

@@ -3,16 +3,16 @@ extern crate tempfile;
 use ansi_term::Colour::{Yellow, Red};
 use log::debug;
 use log::trace;
-use met::cmd::exectable_full_path;
-use met::{DestFile,GenFile,SrcFile};
-use met::err::{log_template_action};
-use met::err::MetError;
-use met::err::Verb::{WOULD,LIVE,SKIPPED};
-use met::fs::can_create_dir_maybe;
-use met::fs::can_write_file;
-use met::fs::create_dir_maybe;
-use met::Mode;
-use met::userinput::ask;
+use dryrun::cmd::exectable_full_path;
+use dryrun::{DestFile,GenFile,SrcFile};
+use dryrun::err::{log_template_action};
+use dryrun::err::DryRunError;
+use dryrun::err::Verb::{WOULD,LIVE,SKIPPED};
+use dryrun::fs::can_create_dir_maybe;
+use dryrun::fs::can_write_file;
+use dryrun::fs::create_dir_maybe;
+use dryrun::Mode;
+use dryrun::userinput::ask;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -56,7 +56,7 @@ pub fn create_or_diff(
     template: &SrcFile,
     dest: &DestFile,
     gen: &GenFile,
-) -> Result<DiffStatus, MetError> {
+) -> Result<DiffStatus, DryRunError> {
     debug!("create_or_diff: diff");
     diff(gen.path(), dest.path());
     match update_from_template(mode, template, gen, dest) {
@@ -71,7 +71,7 @@ pub fn update_from_template<'f>(
     template: &'f SrcFile,
     gen: &'f GenFile,
     dest: &'f DestFile,
-) -> Result<(), MetError> {
+) -> Result<(), DryRunError> {
     trace!("update_from_template");
     trace!("dest {:?}", dest);
 
@@ -85,7 +85,7 @@ pub fn update_from_template<'f>(
         }
         DiffStatus::Failed => {
             debug!("diff failed '{}'", dest);
-            Err(MetError::Error)
+            Err(DryRunError::Error)
         }
         DiffStatus::NewFile => {
             debug!("create '{}'", dest);
@@ -105,18 +105,18 @@ pub fn update_from_template<'f>(
         }
     }
 }
-fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), MetError> {
+fn create_passive(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DryRunError> {
     match can_create_dir_maybe(dest.path.parent()) {
-        Err(_e) => Err(MetError::InsufficientPrivileges(dest.to_string())),
+        Err(_e) => Err(DryRunError::InsufficientPrivileges(dest.to_string())),
         Ok(_) => {
             log_template_action("create from template", WOULD, template, gen, dest);
             Ok(())
         }
    }
 }
-fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), MetError> {
+fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(), DryRunError> {
     match create_dir_maybe(Mode::Active, dest.path.parent()) {
-        Err(MetError::PathNotFound0) => Err(MetError::InsufficientPrivileges(dest.to_string())),
+        Err(DryRunError::PathNotFound0) => Err(DryRunError::InsufficientPrivileges(dest.to_string())),
         Err(e) => Err(e),
         Ok(_dir) => {
             log_template_action("create from template", LIVE, template, gen, dest);
@@ -126,14 +126,14 @@ fn copy_active(gen: &GenFile, dest: &DestFile, template: &SrcFile) -> Result<(),
                         Red.paint("error: copy failed"), 
                         Red.paint(e.to_string())
                     );
-                    Err(MetError::Error)
+                    Err(DryRunError::Error)
                 }
                 Ok(_) => Ok(())
             }
         }
     }
 }
-fn copy_interactive(gen: &GenFile, dest: &DestFile, _template: &SrcFile) -> Result<(), MetError> {
+fn copy_interactive(gen: &GenFile, dest: &DestFile, _template: &SrcFile) -> Result<(), DryRunError> {
     // TODO: add vimdiff support
     // TODO: use ask and copy_passive
     let status = Command::new("cp")
@@ -161,33 +161,33 @@ fn merge_into_template(template: &SrcFile, _gen: &GenFile, dest: &DestFile) -> b
     println!("with: {}", status);
     status.success()
 }
-fn exit_status_to_met_error( r: std::io::Result<ExitStatus> ) -> Result<(), MetError> {
+fn exit_status_to_dryrun_error( r: std::io::Result<ExitStatus> ) -> Result<(), DryRunError> {
     match r {
-		Err(ioe) => Err(MetError::IoError(ioe)),
+		Err(ioe) => Err(DryRunError::IoError(ioe)),
 		Ok(status) => {
 			match status.code() {
-				None => Err(MetError::CmdExitedPrematurely),
+				None => Err(DryRunError::CmdExitedPrematurely),
 				Some(_status_code) => Ok(()) }
 		}
     }
 }
-fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), MetError> {
+fn merge_to_template_interactive(_template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DryRunError> {
 	let exe = String::from("vim");
     let real_exe : PathBuf = exectable_full_path(&exe)?;
 	let mut cmd1 = Command::new(real_exe);
 	let cmd = cmd1.arg("-d").arg(gen).arg(dest);
-    exit_status_to_met_error(cmd.status())
+    exit_status_to_dryrun_error(cmd.status())
 }
 
-fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), MetError> { 
+fn update_from_template_passive(difftext: std::vec::IntoIter<u8>,template: &SrcFile, gen: &GenFile, dest : &DestFile) -> Result<(), DryRunError> { 
     log_template_action("create from template", WOULD, template, gen, dest);
     for ch in difftext { print!("{}", ch as char) }
     Ok(())
 }
-fn update_from_template_active(template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), MetError> {
+fn update_from_template_active(template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DryRunError> {
     copy_active(gen, dest, template)
 }
-fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), MetError> {
+fn update_from_template_interactive(difftext: std::vec::IntoIter<u8>, template: &SrcFile, gen: &GenFile, dest: &DestFile) -> Result<(), DryRunError> {
     let ans = ask( &format!( "{}: {} {} (o)verwrite / (m)erge[vimdiff] / s(k)ip / (d)iff / merge to (t)emplate", "files don't match", gen, dest));
     match ans {
         'd' => {

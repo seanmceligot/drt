@@ -1,19 +1,19 @@
 extern crate tempfile;
-use met::{GenFile,SrcFile};
-use met::err::MetError;
+use dryrun::{GenFile,SrcFile};
+use dryrun::err::DryRunError;
 use std::process::Command;
 use std::process::Stdio;
 use std::io;
 use std::collections::HashMap;
-use met::cmd::exectable_full_path;
+use dryrun::cmd::exectable_full_path;
 
 
 #[cfg(test)]
 mod tests {
 use std::path::PathBuf;
-use met::{GenFile,SrcFile,DestFile,Mode};
-use met::diff::create_or_diff;
-use met::diff::DiffStatus;
+use dryrun::{GenFile,SrcFile,DestFile,Mode};
+use dryrun::diff::create_or_diff;
+use dryrun::diff::DiffStatus;
 use super::*;
 
 #[test]
@@ -31,7 +31,7 @@ pub fn generate_filtered_file<'a>(
 src: & SrcFile,
     cmd: String,
     args: Vec<&'a String>
-) -> Result<GenFile, MetError> {
+) -> Result<GenFile, DryRunError> {
 
     let gen = GenFile::new();
     let cmdpath = exectable_full_path(&cmd)?;

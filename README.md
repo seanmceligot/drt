@@ -9,8 +9,8 @@
 - tempalte and key/vauleu pairs for creating files 
 
 ```console
-$ met --help
-Usage: met [options]
+$ dryrun --help
+Usage: dryrun [options]
 
 Options:
     -D, --debug         debug logging
@@ -19,11 +19,11 @@ Options:
     -h, --help          print this help menu
 
 $ echo key=@@value@@ > template/test.config
-$ met v value first_value t template/test.config template/out.config
+$ dryrun v value first_value t template/test.config template/out.config
 WOULD: create  template/out.config
-$ met --active v value first_value t template/test.config template/out.config
+$ dryrun --active v value first_value t template/test.config template/out.config
 LIVE: create  template/out.config
-$ met v value new_value t template/test.config template/out.config
+$ dryrun v value new_value t template/test.config template/out.config
 WOULD: modify template/out.config
 ```
 ```diff
@@ -33,17 +33,17 @@ WOULD: modify template/out.config
 > key=first_value
 ```
 ```console
-$ met --interactive v value new_value t template/test.config template/out.config
+$ dryrun --interactive v value new_value t template/test.config template/out.config
 files don't match: /tmp/.tmp1HfpM6 template/out.config (o)verwrite / (m)erge[vimdiff] / (c)ontinue / (d)iff / merge to (t)emplate
 o
 LIVE: create  template/out.config
-$ met x chmod 600 template/out.config
+$ dryrun x chmod 600 template/out.config
 WOULD: run  chmod 600 template/out.config
-$ met --interactive x chmod 600 template/out.config
+$ dryrun --interactive x chmod 600 template/out.config
 run (y/n): chmod 600 template/out.config
 n
 WOULD: run  chmod 600 template/out.config
-$ met --active x chmod 600 template/out.config
+$ dryrun --active x chmod 600 template/out.config
 LIVE: run  chmod 600 template/out.config
 status code: 0
 ```
